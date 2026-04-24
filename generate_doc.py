@@ -197,7 +197,7 @@ def generate_document_pair(output_dir, use_ollama=False, ollama_model="llama3"):
         template_content = f.read()
 
     # Filenames
-    base_name = str(len([f for f in os.listdir(output_dir) if f.endswith('.txt')]) + 31)
+    base_name = str(len([f for f in os.listdir(output_dir) if f.endswith('.txt')]) + 1)
     txt_path = os.path.join(output_dir, f"{base_name}.txt")
     pdf_path = os.path.join(output_dir, f"{base_name}.pdf")
     png_path = os.path.join(output_dir, f"{base_name}.png")

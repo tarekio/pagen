@@ -1,0 +1,5 @@
+weasyprint
+pdf2image
+beautifulsoup4
+markdown
+ollama

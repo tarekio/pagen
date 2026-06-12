@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 import argparse
 import hashlib
@@ -363,7 +364,7 @@ def build_word_polygons(png_bytes, word_rects, glyph_boxes, thresh=240, pad=1):
 
 
 def generate_document_pair(
-    output_dir, use_ollama=False, ollama_model="llama3", dpi=150, keep_pdf=False
+    output_dir, file_id, use_ollama=False, ollama_model="llama3", dpi=150, keep_pdf=False
 ):
     templates = [f for f in os.listdir(TEMPLATES_DIR) if f.endswith(".md")]
     if not templates:
@@ -383,14 +384,7 @@ def generate_document_pair(
     images_dir = os.path.join(output_dir, "images")
     os.makedirs(images_dir, exist_ok=True)
 
-    # Filenames: continue after the highest existing image so re-runs don't collide or
-    # get thrown off by gaps.
-    existing = [
-        int(m.group(1))
-        for f in os.listdir(images_dir)
-        if (m := re.match(r"(\d+)\.png$", f))
-    ]
-    base_name = str(max(existing, default=0) + 1)
+    base_name = str(file_id)
     png_path = os.path.join(images_dir, f"{base_name}.png")
     txt_path = os.path.join(output_dir, f"{base_name}.txt")
     pdf_path = os.path.join(output_dir, f"{base_name}.pdf")
@@ -475,6 +469,20 @@ def generate_document_pair(
     return f"{base_name}.png", entry
 
 
+def _worker(task):
+    output_dir, file_id, use_ollama, ollama_model, dpi, keep_pdf = task
+    random.seed()  # reseed per-worker — fork inherits parent RNG state, causing duplicates
+    try:
+        return generate_document_pair(
+            output_dir, file_id,
+            use_ollama=use_ollama, ollama_model=ollama_model,
+            dpi=dpi, keep_pdf=keep_pdf,
+        )
+    except Exception as e:
+        print(f"WARNING: doc {file_id} failed: {e}")
+        return None
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate Eastern Arabic text-detection data (PNG + ground-truth TXT + "
@@ -500,32 +508,64 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ollama-model", default="llama3", help="Ollama model to use (default: llama3)"
     )
+    parser.add_argument(
+        "--workers", type=int, default=os.cpu_count(),
+        help="Number of parallel worker processes (default: all CPUs)",
+    )
 
     args = parser.parse_args()
 
-    if not os.path.exists(args.output):
-        os.makedirs(args.output)
+    images_dir = os.path.join(args.output, "images")
+    os.makedirs(images_dir, exist_ok=True)
 
-    # Load existing labels.json so re-runs append rather than overwrite.
+    # Pre-assign contiguous IDs in the parent before workers start — no runtime race.
+    existing = [
+        int(m.group(1))
+        for f in os.listdir(images_dir)
+        if (m := re.match(r"(\d+)\.png$", f))
+    ]
+    start_id = max(existing, default=0) + 1
+    file_ids = list(range(start_id, start_id + args.count))
+
+    tasks = [
+        (args.output, fid, args.ollama, args.ollama_model, args.dpi, args.keep_pdf)
+        for fid in file_ids
+    ]
+    n_workers = max(1, min(args.workers, args.count))
+
     labels_path = os.path.join(args.output, "labels.json")
-    coords = {}
+
+    # Load existing entries once up-front (only populated on re-runs).
+    existing_entries = {}
     if os.path.exists(labels_path):
         with open(labels_path, "r", encoding="utf-8") as f:
-            coords = json.load(f)
+            existing_entries = json.load(f)
 
-    for i in range(args.count):
-        print(f"Generating document {i+1}/{args.count}...")
-        result = generate_document_pair(
-            args.output,
-            use_ollama=args.ollama,
-            ollama_model=args.ollama_model,
-            dpi=args.dpi,
-            keep_pdf=args.keep_pdf,
-        )
-        if result:
+    # Stream each result directly to disk as workers finish — the parent never
+    # accumulates the full new batch in memory.
+    done = 0
+    with open(labels_path, "w", encoding="utf-8") as out, \
+         multiprocessing.Pool(n_workers) as pool:
+        out.write("{\n")
+        first = [True]
+
+        def _emit(key, value):
+            sep = "" if first[0] else ",\n"
+            out.write(sep + json.dumps(key) + ": " + json.dumps(value, ensure_ascii=False))
+            first[0] = False
+
+        for img_name, entry in existing_entries.items():
+            _emit(img_name, entry)
+
+        for result in pool.imap_unordered(_worker, tasks):
+            if result is None:
+                continue
             img_name, entry = result
-            coords[img_name] = entry
+            _emit(img_name, entry)
+            done += 1
+            print(f"  {done}/{args.count} done")
 
-    with open(labels_path, "w", encoding="utf-8") as f:
-        json.dump(coords, f, ensure_ascii=False, indent=2)
-    print(f"Wrote {len(coords)} entries to {labels_path}")
+        out.write("\n}\n")
+
+    total = len(existing_entries) + done
+    print(f"Wrote {total} entries to {labels_path}")

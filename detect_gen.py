@@ -127,14 +127,10 @@ def process_template(template_str, use_ollama=False, ollama_model="llama3"):
             """
             response = ollama.chat(
                 model=ollama_model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
+                messages=[{"role": "user", "content": prompt}],
+                think=False,
             )
-            template_str = response["message"]["content"].strip()
+            template_str = re.sub(r"[ؐ-ًؚ-ٟ]", "", response["message"]["content"].strip())
         except ImportError:
             print(
                 "WARNING: ollama library not found. Falling back to random words. To use ollama, run: pip install ollama"
@@ -210,6 +206,7 @@ def build_full_html(html_content, font_face_css, font_family):
                     text-align: right;
                     padding-right: 1.5em;
                     padding-left: 0;
+                    list-style: none;
                 }}
                 li {{
                     direction: rtl;
@@ -229,6 +226,28 @@ def build_full_html(html_content, font_face_css, font_family):
 
 
 WORD_SPAN_CLASS = "pw"
+
+
+def inject_list_markers(html_content):
+    """Inject list markers as real DOM text nodes so wrap_words_in_html() picks them up.
+
+    CSS ::marker pseudo-elements are rendered in the PNG but have no DOM text node, so
+    they would appear in the image without a bounding box. Injecting the marker as a
+    NavigableString inside each <li> ensures it gets a <span class="pw"> and a polygon.
+    build_full_html() must set list-style:none to suppress the now-duplicate CSS marker."""
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    for ul in soup.find_all("ul"):
+        for li in ul.find_all("li", recursive=False):
+            li.insert(0, NavigableString("• "))
+
+    for ol in soup.find_all("ol"):
+        start = int(ol.get("start", 1))
+        for i, li in enumerate(ol.find_all("li", recursive=False)):
+            marker = get_eastern_arabic_numeral(str(i + start)) + ". "
+            li.insert(0, NavigableString(marker))
+
+    return str(soup)
 
 
 def wrap_words_in_html(html_content):
@@ -414,11 +433,13 @@ def generate_document_pair(
         if not _is_valid_generated_text(generated_md):
             if attempt < max_tries - 1:
                 print("Generated text has invalid chars/placeholders. Retrying...")
+                print("Generated text was:", repr(generated_md))
                 continue
             print(f"WARNING: Could not generate valid text after {max_tries} tries, skipping.")
             return None
 
         html_content = markdown.markdown(generated_md, extensions=["tables"])
+        html_content = inject_list_markers(html_content)
         html_content = wrap_words_in_html(html_content)
         chosen_font = get_random_font()
         font_face_css = ""

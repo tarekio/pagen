@@ -122,14 +122,10 @@ def process_template(template_str, use_ollama=False, ollama_model="llama3"):
             """
             response = ollama.chat(
                 model=ollama_model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
+                messages=[{"role": "user", "content": prompt}],
+                think=False,
             )
-            template_str = response["message"]["content"].strip()
+            template_str = re.sub(r"[ؐ-ًؚ-ٟ]", "", response["message"]["content"].strip())
         except ImportError:
             print(
                 "WARNING: ollama library not found. Falling back to random words. To use ollama, run: pip install ollama"

@@ -363,6 +363,21 @@ def build_word_polygons(png_bytes, word_rects, glyph_boxes, thresh=240, pad=1):
     return polygons
 
 
+_ALLOWED_CHARS = frozenset(
+    "٠١٢٣٤٥٦٧٨٩ءآأؤإئابةتثجحخدذرزسشصضطظعغفقكلمنهوىي"
+    "؟؛«»—،%!#$&'()*+,-./:;<=>?@[\\]^_`{|}~×÷“”‘’…"
+)
+_PLACEHOLDER_RE = re.compile(
+    r"\{(?:WORDS_\d+|INT_\d+_\d+|FLOAT_[\d.]+_[\d.]+|DATE)\}"
+)
+
+
+def _is_valid_generated_text(text):
+    if _PLACEHOLDER_RE.search(text):
+        return False
+    return all(ch.isspace() or ch in _ALLOWED_CHARS for ch in text)
+
+
 def generate_document_pair(
     output_dir, file_id, use_ollama=False, ollama_model="llama3", dpi=150, keep_pdf=False
 ):
@@ -395,6 +410,13 @@ def generate_document_pair(
         generated_md = process_template(
             template_content, use_ollama=use_ollama, ollama_model=ollama_model
         )
+
+        if not _is_valid_generated_text(generated_md):
+            if attempt < max_tries - 1:
+                print("Generated text has invalid chars/placeholders. Retrying...")
+                continue
+            print(f"WARNING: Could not generate valid text after {max_tries} tries, skipping.")
+            return None
 
         html_content = markdown.markdown(generated_md, extensions=["tables"])
         html_content = wrap_words_in_html(html_content)

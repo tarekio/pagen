@@ -104,6 +104,169 @@ def get_random_date():
     return f"{day} {month} {year}"
 
 
+_OLLAMA_CHAR_MAP = str.maketrans({
+    # Explicit removal
+    '\u0640': None,  # ـ
+    # Hamza normalization
+    '\u0672': '\u0623',  # ٲ -> أ
+    '\u0673': '\u0625',  # ٳ -> إ
+    '\u0676': '\u0648',  # ٶ -> و
+    '\u0678': '\u064a',  # ٸ -> ي
+    # Ta Marbuta
+    '\u0629': '\u0629',  # ة -> ة
+    '\u06c3': '\u0629',  # ۃ -> ة
+    # Presentation forms -> standard
+    '\ufee2': '\u0645',  # ﻢ -> م
+    '\ufee4': '\u0645',  # ﻤ -> م
+    '\ufee3': '\u0645',  # ﻣ -> م
+    '\ufee1': '\u0645',  # ﻡ -> م
+    '\ufe8e': '\u0627',  # ﺎ -> ا
+    '\ufe8d': '\u0627',  # ﺍ -> ا
+    '\ufeeb': '\u0647',  # ﻫ -> ه
+    '\ufeec': '\u0647',  # ﻬ -> ه
+    '\ufeea': '\u0647',  # ﻪ -> ه
+    '\ufee9': '\u0647',  # ﻩ -> ه
+    '\ufeab': '\u0630',  # ﺫ -> ذ
+    '\ufeac': '\u0630',  # ﺬ -> ذ
+    '\ufe91': '\u0628',  # ﺑ -> ب
+    '\ufe92': '\u0628',  # ﺒ -> ب
+    '\ufe90': '\u0628',  # ﺐ -> ب
+    '\ufe8f': '\u0628',  # ﺏ -> ب
+    '\ufea4': '\u062d',  # ﺤ -> ح
+    '\ufea3': '\u062d',  # ﺣ -> ح
+    '\ufea2': '\u062d',  # ﺢ -> ح
+    '\ufea8': '\u062e',  # ﺨ -> خ
+    '\ufea7': '\u062e',  # ﺧ -> خ
+    '\ufea6': '\u062e',  # ﺦ -> خ
+    '\ufeae': '\u0631',  # ﺮ -> ر
+    '\ufe97': '\u062a',  # ﺗ -> ت
+    '\ufe98': '\u062a',  # ﺘ -> ت
+    '\ufe95': '\u062a',  # ﺕ -> ت
+    '\ufe96': '\u0629',  # ﺖ -> ة
+    '\ufea9': '\u062f',  # ﺩ -> د
+    '\ufeaa': '\u062f',  # ﺪ -> د
+    '\ufedb': '\u0643',  # ﻛ -> ك
+    '\ufedc': '\u0643',  # ﻜ -> ك
+    '\ufeda': '\u0643',  # ﻚ -> ك
+    '\ufed9': '\u0643',  # ﻙ -> ك
+    '\ufef4': '\u064a',  # ﻴ -> ي
+    '\ufef3': '\u064a',  # ﻳ -> ي
+    '\ufef2': '\u064a',  # ﻲ -> ي
+    '\ufef1': '\u064a',  # ﻱ -> ي
+    '\ufee8': '\u0646',  # ﻨ -> ن
+    '\ufee7': '\u0646',  # ﻧ -> ن
+    '\ufee6': '\u0646',  # ﻦ -> ن
+    '\ufee5': '\u0646',  # ﻥ -> ن
+    '\ufede': '\u0644',  # ﻞ -> ل
+    '\ufedf': '\u0644',  # ﻟ -> ل
+    '\ufee0': '\u0644',  # ﻠ -> ل
+    '\ufedd': '\u0644',  # ﻝ -> ل
+    '\ufeb4': '\u0633',  # ﺴ -> س
+    '\ufeb3': '\u0633',  # ﺳ -> س
+    '\ufeb2': '\u0633',  # ﺲ -> س
+    '\ufeb8': '\u0634',  # ﺸ -> ش
+    '\ufeb7': '\u0634',  # ﺷ -> ش
+    '\ufeb6': '\u0634',  # ﺶ -> ش
+    '\ufecc': '\u0639',  # ﻌ -> ع
+    '\ufecb': '\u0639',  # ﻋ -> ع
+    '\ufeca': '\u0639',  # ﻊ -> ع
+    '\ufed0': '\u063a',  # ﻐ -> غ
+    '\ufecf': '\u063a',  # ﻏ -> غ
+    '\ufece': '\u063a',  # ﻎ -> غ
+    '\ufed4': '\u0641',  # ﻔ -> ف
+    '\ufed3': '\u0641',  # ﻓ -> ف
+    '\ufed2': '\u0641',  # ﻒ -> ف
+    '\ufed8': '\u0642',  # ﻘ -> ق
+    '\ufed7': '\u0642',  # ﻗ -> ق
+    '\ufed6': '\u0642',  # ﻖ -> ق
+    '\ufec0': '\u0636',  # ﻀ -> ض
+    '\ufebf': '\u0636',  # ﺿ -> ض
+    '\ufebe': '\u0636',  # ﺾ -> ض
+    '\ufebc': '\u0635',  # ﺼ -> ص
+    '\ufebb': '\u0635',  # ﺻ -> ص
+    '\ufeba': '\u0635',  # ﺺ -> ص
+    '\ufec4': '\u0637',  # ﻄ -> ط
+    '\ufec3': '\u0637',  # ﻃ -> ط
+    '\ufec2': '\u0637',  # ﻂ -> ط
+    '\ufec8': '\u0638',  # ﻈ -> ظ
+    '\ufec7': '\u0638',  # ﻇ -> ظ
+    '\ufec6': '\u0638',  # ﻆ -> ظ
+    '\ufeb0': '\u0632',  # ﺰ -> ز
+    '\ufeaf': '\u0632',  # ﺯ -> ز
+    '\ufe9e': '\u062c',  # ﺞ -> ج
+    '\ufe9f': '\u062c',  # ﺟ -> ج
+    '\ufea0': '\u062c',  # ﺠ -> ج
+    # Western digits -> Eastern Arabic
+    '0': '\u0660',  # 0 -> ٠
+    '1': '\u0661',  # 1 -> ١
+    '2': '\u0662',  # 2 -> ٢
+    '3': '\u0663',  # 3 -> ٣
+    '4': '\u0664',  # 4 -> ٤
+    '5': '\u0665',  # 5 -> ٥
+    '6': '\u0666',  # 6 -> ٦
+    '7': '\u0667',  # 7 -> ٧
+    '8': '\u0668',  # 8 -> ٨
+    '9': '\u0669',  # 9 -> ٩
+    # Persian/Urdu digits -> Eastern Arabic
+    '\u06f0': '\u0660',  # ۰ -> ٠
+    '\u06f1': '\u0661',  # ۱ -> ١
+    '\u06f2': '\u0662',  # ۲ -> ٢
+    '\u06f3': '\u0663',  # ۳ -> ٣
+    '\u06f4': '\u0664',  # ۴ -> ٤
+    '\u06f5': '\u0665',  # ۵ -> ٥
+    '\u06f6': '\u0666',  # ۶ -> ٦
+    '\u06f7': '\u0667',  # ۷ -> ٧
+    '\u06f8': '\u0668',  # ۸ -> ٨
+    '\u06f9': '\u0669',  # ۹ -> ٩
+    # Variant/extended letters -> standard Arabic
+    '\u0679': '\u062a',  # ٹ -> ت
+    '\u067a': '\u062a',  # ٺ -> ت
+    '\u067c': '\u062a',  # ټ -> ت
+    '\u0689': '\u062f',  # ډ -> د
+    '\u068a': '\u062f',  # ڊ -> د
+    '\u0693': '\u0631',  # ړ -> ر
+    '\u0694': '\u0631',  # ڔ -> ر
+    '\u0695': '\u0631',  # ڕ -> ر
+    '\u0699': '\u0632',  # ڙ -> ز
+    '\u069c': '\u0634',  # ڜ -> ش
+    '\u06a0': '\u063a',  # ڠ -> غ
+    '\u06a7': '\u0642',  # ڧ -> ق
+    '\u06a8': '\u0642',  # ڨ -> ق
+    '\u06aa': '\u0643',  # ڪ -> ك
+    '\u06ab': '\u0643',  # ګ -> ك
+    '\u06ac': '\u0643',  # ڬ -> ك
+    '\u06ad': '\u0643',  # ڭ -> ك
+    '\u06b0': '\u0643',  # ڰ -> ك
+    '\u06b5': '\u0644',  # ڵ -> ل
+    '\u06b7': '\u0644',  # ڷ -> ل
+    '\u06ba': '\u0646',  # ں -> ن
+    '\u06bc': '\u0646',  # ڼ -> ن
+    '\u06be': '\u0647',  # ھ -> ه
+    '\u06c1': '\u0647',  # ہ -> ه
+    '\u06d5': '\u0647',  # ە -> ه
+    '\u06c6': '\u0648',  # ۆ -> و
+    '\u06c7': '\u0648',  # ۇ -> و
+    '\u06c8': '\u0648',  # ۈ -> و
+    '\u06c9': '\u0648',  # ۉ -> و
+    '\u06cb': '\u0648',  # ۋ -> و
+    '\u06e5': '\u0648',  # ۥ -> و
+    '\u06ce': '\u064a',  # ێ -> ي
+    '\u06d0': '\u064a',  # ې -> ي
+    '\u06d2': '\u064a',  # ے -> ي
+    '\u06d3': '\u064a',  # ۓ -> ي
+    '\u06e6': '\u064a',  # ۦ -> ي
+    '\u0649': '\u064a',  # ى -> ي
+})
+
+_TASHKEEL_RE = re.compile('[\u0610-\u061a\u064b-\u065f]')
+
+
+def _normalize_ollama_output(text):
+    """Strip tashkeel and normalize Arabic variant/presentation-form characters."""
+    return _TASHKEEL_RE.sub('', text.translate(_OLLAMA_CHAR_MAP))
+
+
+
 def process_template(template_str, use_ollama=False, ollama_model="llama3"):
     if use_ollama:
         try:
@@ -130,7 +293,7 @@ def process_template(template_str, use_ollama=False, ollama_model="llama3"):
                 messages=[{"role": "user", "content": prompt}],
                 think=False,
             )
-            template_str = re.sub(r"[ؐ-ًؚ-ٟ]", "", response["message"]["content"].strip())
+            template_str = _filter_ollama_output(_normalize_ollama_output(response['message']['content'].strip()))
         except ImportError:
             print(
                 "WARNING: ollama library not found. Falling back to random words. To use ollama, run: pip install ollama"
@@ -177,10 +340,22 @@ def strip_markdown_to_plain_text(md_text):
     )
 
 
+def _is_color_font(path):
+    try:
+        from fontTools.ttLib import TTFont
+        tables = TTFont(path).keys()
+        return "COLR" in tables or "SVG " in tables or "sbix" in tables
+    except Exception:
+        return False
+
+
 def get_random_font():
     if not os.path.exists(FONTS_DIR):
         return None
-    fonts = [f for f in os.listdir(FONTS_DIR) if f.endswith(".ttf")]
+    fonts = [
+        f for f in os.listdir(FONTS_DIR)
+        if f.endswith(".ttf") and not _is_color_font(os.path.join(FONTS_DIR, f))
+    ]
     if not fonts:
         return None
     return os.path.join(FONTS_DIR, random.choice(fonts))
@@ -384,26 +559,30 @@ def build_word_polygons(png_bytes, word_rects, glyph_boxes, thresh=240, pad=1):
 
 _ALLOWED_CHARS = frozenset(
     "٠١٢٣٤٥٦٧٨٩ءآأؤإئابةتثجحخدذرزسشصضطظعغفقكلمنهوىي"
-    "؟؛«»—،%!#$&'()*+,-./:;<=>?@[\\]^_`{|}~×÷“”‘’…"
+    "؟؛«»—،%!#$&'()*+,-./:;<=>?@[\\]^_`{|}~×÷“”‘’…٪٫"
 )
 _PLACEHOLDER_RE = re.compile(
     r"\{(?:WORDS_\d+|INT_\d+_\d+|FLOAT_[\d.]+_[\d.]+|DATE)\}"
 )
 
 
+def _filter_ollama_output(text):
+    """Strip characters not in the allowed set, keeping whitespace intact."""
+    return ''.join(ch for ch in text if ch.isspace() or ch in _ALLOWED_CHARS)
+
+
 def _is_valid_generated_text(text):
-    if _PLACEHOLDER_RE.search(text):
-        return False
-    return all(ch.isspace() or ch in _ALLOWED_CHARS for ch in text)
+    return not _PLACEHOLDER_RE.search(text)
 
 
 def generate_document_pair(
     output_dir, file_id, use_ollama=False, ollama_model="llama3", dpi=150, keep_pdf=False
 ):
+    """Return a list of (img_name, entry) tuples — one per rendered page."""
     templates = [f for f in os.listdir(TEMPLATES_DIR) if f.endswith(".md")]
     if not templates:
         print("No templates found in", TEMPLATES_DIR)
-        return None
+        return []
 
     chosen_template = random.choice(templates)
 
@@ -412,104 +591,104 @@ def generate_document_pair(
 
     if not WEASYPRINT_AVAILABLE or not PYMUPDF_AVAILABLE:
         print("Cannot generate: weasyprint and pymupdf are both required.")
-        return None
+        return []
 
-    # doctr layout: images in an `images/` subdir, labels.json at the dataset root.
     images_dir = os.path.join(output_dir, "images")
     os.makedirs(images_dir, exist_ok=True)
 
     base_name = str(file_id)
-    png_path = os.path.join(images_dir, f"{base_name}.png")
-    txt_path = os.path.join(output_dir, f"{base_name}.txt")
     pdf_path = os.path.join(output_dir, f"{base_name}.pdf")
 
+    # Retry only for unfilled placeholders; multi-page is handled gracefully below.
     max_tries = 3
+    generated_md = None
     for attempt in range(max_tries):
-        # Generate finalized MD string with Eastern Digits
         generated_md = process_template(
             template_content, use_ollama=use_ollama, ollama_model=ollama_model
         )
-
         if not _is_valid_generated_text(generated_md):
             if attempt < max_tries - 1:
-                print("Generated text has invalid chars/placeholders. Retrying...")
+                print("Generated text has unfilled placeholders. Retrying...")
                 print("Generated text was:", repr(generated_md))
                 continue
             print(f"WARNING: Could not generate valid text after {max_tries} tries, skipping.")
-            return None
+            return []
+        break
 
-        html_content = markdown.markdown(generated_md, extensions=["tables"])
-        html_content = inject_list_markers(html_content)
-        html_content = wrap_words_in_html(html_content)
-        chosen_font = get_random_font()
-        font_face_css = ""
-        font_family = "sans-serif"
+    html_content = markdown.markdown(generated_md, extensions=["tables"])
+    html_content = inject_list_markers(html_content)
+    html_content = wrap_words_in_html(html_content)
+    chosen_font = get_random_font()
+    font_face_css = ""
+    font_family = "sans-serif"
 
-        if chosen_font:
-            font_family = "CustomArabicFont"
-            import urllib.request
+    if chosen_font:
+        font_family = "CustomArabicFont"
+        import urllib.request
 
-            font_uri = urllib.request.pathname2url(os.path.abspath(chosen_font))
-            font_face_css = f"""
-            @font-face {{
-                font-family: 'CustomArabicFont';
-                src: url('file:{font_uri}');
-            }}
-            """
+        font_uri = urllib.request.pathname2url(os.path.abspath(chosen_font))
+        font_face_css = f"""
+        @font-face {{
+            font-family: 'CustomArabicFont';
+            src: url('file:{font_uri}');
+        }}
+        """
 
-        full_html = build_full_html(html_content, font_face_css, font_family)
+    full_html = build_full_html(html_content, font_face_css, font_family)
+    doc_render = HTML(string=full_html).render()
 
-        doc_render = HTML(string=full_html).render()
-        if len(doc_render.pages) <= 1:
-            break
-        elif attempt == max_tries - 1:
-            print(f"WARNING: Document exceeded 1 page after {max_tries} tries.")
-        else:
-            print("Document exceeded 1 page. Retrying...")
-
-    # 1. Ground truth (plain text, no markdown)
-    pure_text = strip_markdown_to_plain_text(generated_md)
-    with open(txt_path, "w", encoding="utf-8") as f:
-        f.write(pure_text)
-
-    # 2. PDF (in-memory; only persisted when --keep-pdf)
+    # PDF (in-memory; only persisted when --keep-pdf)
     pdf_bytes = doc_render.write_pdf()
     if keep_pdf:
         with open(pdf_path, "wb") as f:
             f.write(pdf_bytes)
 
-    # 3. Rasterize the PDF to PNG and read tight glyph geometry from the same PDF.
     zoom = dpi / 72.0
     mat = fitz.Matrix(zoom, zoom)
     pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    pdf_page = pdf_doc[0]
-    pix = pdf_page.get_pixmap(matrix=mat)
-    png_bytes = pix.tobytes("png")
-    with open(png_path, "wb") as f:
-        f.write(png_bytes)
-    glyph_boxes = extract_glyph_boxes(pdf_page, mat)
-    pdf_doc.close()
 
-    # 4. Words + labels from WeasyPrint's layout tree (correct Arabic text); the polygon
-    # geometry comes from the PyMuPDF glyph boxes inside each word, tightened to the ink.
-    # CSS px -> raster px: WeasyPrint uses 96 px/inch, raster is rendered at `dpi`.
-    word_rects, labels = extract_word_boxes(doc_render.pages[0]._page_box, dpi / 96.0)
-    polygons = build_word_polygons(png_bytes, word_rects, glyph_boxes)
-    entry = {
-        "img_dimensions": [pix.width, pix.height],
-        "img_hash": hashlib.sha256(png_bytes).hexdigest(),
-        "polygons": polygons,
-        "labels": labels,
-    }
-
+    n_pages = len(doc_render.pages)
     font_msg = os.path.basename(chosen_font) if chosen_font else "System"
-    pdf_msg = f", {pdf_path}" if keep_pdf else ""
-    print(
-        f"Generated: {png_path}, {txt_path}{pdf_msg} "
-        f"({len(polygons)} polygons, Font: {font_msg})"
-    )
+    results = []
 
-    return f"{base_name}.png", entry
+    for page_idx, wp_page in enumerate(doc_render.pages):
+        # Single-page docs keep the bare name; multi-page get a _p1/_p2/… suffix.
+        page_suffix = f"_p{page_idx + 1}" if n_pages > 1 else ""
+        page_base = f"{base_name}{page_suffix}"
+        png_path = os.path.join(images_dir, f"{page_base}.png")
+        txt_path = os.path.join(output_dir, f"{page_base}.txt")
+
+        pdf_page = pdf_doc[page_idx]
+        pix = pdf_page.get_pixmap(matrix=mat)
+        png_bytes = pix.tobytes("png")
+        with open(png_path, "wb") as f:
+            f.write(png_bytes)
+
+        glyph_boxes = extract_glyph_boxes(pdf_page, mat)
+        # CSS px -> raster px: WeasyPrint uses 96 px/inch, raster is at `dpi`.
+        word_rects, labels = extract_word_boxes(wp_page._page_box, dpi / 96.0)
+        polygons = build_word_polygons(png_bytes, word_rects, glyph_boxes)
+
+        # Ground truth: words from this page's layout tree, one per line.
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(labels))
+
+        entry = {
+            "img_dimensions": [pix.width, pix.height],
+            "img_hash": hashlib.sha256(png_bytes).hexdigest(),
+            "polygons": polygons,
+            "labels": labels,
+        }
+
+        pdf_msg = f", {pdf_path}" if keep_pdf and page_idx == 0 else ""
+        print(
+            f"Generated: {png_path}, {txt_path}{pdf_msg} "
+            f"({len(polygons)} polygons, Font: {font_msg})"
+        )
+        results.append((f"{page_base}.png", entry))
+
+    pdf_doc.close()
+    return results
 
 
 def _worker(task):
@@ -523,7 +702,7 @@ def _worker(task):
         )
     except Exception as e:
         print(f"WARNING: doc {file_id} failed: {e}")
-        return None
+        return []
 
 
 if __name__ == "__main__":
@@ -587,8 +766,7 @@ if __name__ == "__main__":
     # Stream each result directly to disk as workers finish — the parent never
     # accumulates the full new batch in memory.
     done = 0
-    with open(labels_path, "w", encoding="utf-8") as out, \
-         multiprocessing.Pool(n_workers) as pool:
+    with open(labels_path, "w", encoding="utf-8") as out:
         out.write("{\n")
         first = [True]
 
@@ -600,15 +778,22 @@ if __name__ == "__main__":
         for img_name, entry in existing_entries.items():
             _emit(img_name, entry)
 
-        for result in pool.imap_unordered(_worker, tasks):
-            if result is None:
-                continue
-            img_name, entry = result
-            _emit(img_name, entry)
-            done += 1
-            print(f"  {done}/{args.count} done")
-
-        out.write("\n}\n")
+        pool = multiprocessing.Pool(n_workers)
+        try:
+            for page_results in pool.imap_unordered(_worker, tasks):
+                for img_name, entry in page_results:
+                    _emit(img_name, entry)
+                if page_results:
+                    done += 1
+                    print(f"  {done}/{args.count} done")
+            pool.close()
+            pool.join()
+        except KeyboardInterrupt:
+            print("\nInterrupted — terminating workers...")
+            pool.terminate()
+            pool.join()
+        finally:
+            out.write("\n}\n")
 
     total = len(existing_entries) + done
     print(f"Wrote {total} entries to {labels_path}")

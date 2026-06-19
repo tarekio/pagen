@@ -4,3 +4,4 @@ pdf2image
 beautifulsoup4
 markdown
 ollama
+opencv-python

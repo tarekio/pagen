@@ -1,0 +1,15 @@
+# {WORDS_5}
+
+{DATE} | {WORDS_3}
+
+{WORDS_5}،
+
+{WORDS_60}
+
+{WORDS_50}
+
+{WORDS_45}
+
+{WORDS_30}
+
+{WORDS_3}

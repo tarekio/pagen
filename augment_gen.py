@@ -278,10 +278,12 @@ def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache, rng):
     fH, fW = photo.shape[:2]
 
     # Random horizontal / vertical flip of background
-    if rng.random() < 0.5:
-        photo = cv2.flip(photo, 1)   # horizontal
-    if rng.random() < 0.3:
-        photo = cv2.flip(photo, 0)   # vertical
+    flip_h = rng.random() < 0.5
+    flip_v = rng.random() < 0.3
+    if flip_h:
+        photo = cv2.flip(photo, 1)
+    if flip_v:
+        photo = cv2.flip(photo, 0)
 
     # Random perspective crop of background (2–8% inset per corner)
     # Simulates a slightly different camera angle each time the same photo is reused.
@@ -300,6 +302,15 @@ def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache, rng):
 
     quad = corners_cache[pic_fname]   # [[x,y]*4] TL,TR,BR,BL
     quad_pts = np.array(quad, dtype=np.float32)
+
+    # Keep quad_pts in sync with the flip + perspective crop applied to the photo,
+    # then re-order so TL/TR/BR/BL labels match actual spatial positions.
+    if flip_h:
+        quad_pts[:, 0] = fW - quad_pts[:, 0]
+    if flip_v:
+        quad_pts[:, 1] = fH - quad_pts[:, 1]
+    quad_pts = cv2.perspectiveTransform(quad_pts.reshape(-1, 1, 2), H_bg).reshape(-1, 2)
+    quad_pts = np.array(_order_quad(quad_pts.tolist()), dtype=np.float32)
 
     # Jitter each corner 0–5% toward centroid so placement varies per image.
     # The detected corners are the outer bound; jitter only moves inward.
@@ -518,7 +529,7 @@ def main():
     parser.add_argument("--pics-prob", type=float, default=0.45)
     parser.add_argument("--pics-dir", default="images/images_pics")
     parser.add_argument("--scan-dir", default="images/images_scan")
-    parser.add_argument("--workers", type=int, default=os.cpu_count())
+    parser.add_argument("--workers", type=int, default=os.cpu_count()*3//4)
     args = parser.parse_args()
 
     # Normalise probabilities

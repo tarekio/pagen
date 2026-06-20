@@ -228,7 +228,7 @@ def _long_short(a, b):
     return (a, b) if a >= b else (b, a)
 
 
-def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache):
+def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache, rng):
     """Perspective-warp the page onto a blank-paper photo.
 
     Returns (rgb ndarray, new_polygons) where new_polygons are the original
@@ -241,7 +241,7 @@ def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache):
     pH, pW = page.shape[:2]
 
     # Pick a random background photo
-    pic_fname = random.choice(list(corners_cache.keys()))
+    pic_fname = rng.choice(list(corners_cache.keys()))
     # Find the full path
     pic_dir = None
     for img_path in pic_imgs:
@@ -256,8 +256,36 @@ def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache):
         return None, None
     fH, fW = photo.shape[:2]
 
+    # Random horizontal / vertical flip of background
+    if rng.random() < 0.5:
+        photo = cv2.flip(photo, 1)   # horizontal
+    if rng.random() < 0.3:
+        photo = cv2.flip(photo, 0)   # vertical
+
+    # Random perspective crop of background (2–8% inset per corner)
+    # Simulates a slightly different camera angle each time the same photo is reused.
+    def _rand_inset(dim):
+        return int(rng.uniform(0.02, 0.08) * dim)
+
+    bg_src = np.array([
+        [_rand_inset(fW),        _rand_inset(fH)],
+        [fW - _rand_inset(fW),   _rand_inset(fH)],
+        [fW - _rand_inset(fW),   fH - _rand_inset(fH)],
+        [_rand_inset(fW),        fH - _rand_inset(fH)],
+    ], dtype=np.float32)
+    bg_dst = np.array([[0, 0], [fW, 0], [fW, fH], [0, fH]], dtype=np.float32)
+    H_bg = cv2.getPerspectiveTransform(bg_src, bg_dst)
+    photo = cv2.warpPerspective(photo, H_bg, (fW, fH))
+
     quad = corners_cache[pic_fname]   # [[x,y]*4] TL,TR,BR,BL
     quad_pts = np.array(quad, dtype=np.float32)
+
+    # Jitter each corner 0–5% toward centroid so placement varies per image.
+    # The detected corners are the outer bound; jitter only moves inward.
+    centroid = quad_pts.mean(axis=0)
+    for i in range(4):
+        t = rng.uniform(0.0, 0.05)
+        quad_pts[i] = quad_pts[i] + t * (centroid - quad_pts[i])
 
     # Measure quad's width and height spans to decide page orientation
     top_w = np.linalg.norm(quad_pts[1] - quad_pts[0])
@@ -282,8 +310,9 @@ def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache):
     # Homography: page → photo quad
     H_mat = cv2.getPerspectiveTransform(src_pts, quad_pts)
 
-    # Warp page onto photo (full photo size)
-    warped_page = cv2.warpPerspective(page, H_mat, (fW, fH))
+    # Warp page; white fill avoids black edge artifacts at the warp boundary
+    warped_page = cv2.warpPerspective(page, H_mat, (fW, fH),
+                                      borderValue=(255, 255, 255))
 
     # Build quad mask for compositing
     mask = np.zeros((fH, fW), dtype=np.uint8)
@@ -424,7 +453,7 @@ def _process_entry(args):
             result_img, _ = _apply_scan(src_path, scan_imgs)
             new_polygons = polygons
         else:
-            result_img, new_polygons = _apply_pics(src_path, polygons, pic_imgs, corners_cache)
+            result_img, new_polygons = _apply_pics(src_path, polygons, pic_imgs, corners_cache, rng)
             if new_polygons is None:
                 new_polygons = polygons
 

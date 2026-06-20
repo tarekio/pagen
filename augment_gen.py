@@ -189,7 +189,7 @@ def ensure_corners_cache(pics_dir):
 # Path A — scan texture composite
 # ---------------------------------------------------------------------------
 
-def _apply_scan(page_png_path, scan_imgs):
+def _apply_scan(page_png_path, scan_imgs, rng):
     """Multiply-blend the page onto a random scan texture. Returns (rgb ndarray, None)
     meaning polygons are unchanged."""
     page = cv2.imread(page_png_path)           # BGR, white bg
@@ -197,15 +197,36 @@ def _apply_scan(page_png_path, scan_imgs):
         return None, None
     H, W = page.shape[:2]
 
-    scan_path = random.choice(scan_imgs)
+    scan_path = rng.choice(scan_imgs)
     scan = cv2.imread(scan_path)
     if scan is None:
         return page, None
 
+    # Random flip so the same texture doesn't always appear in the same orientation
+    if rng.random() < 0.5:
+        scan = cv2.flip(scan, 1)
+    if rng.random() < 0.3:
+        scan = cv2.flip(scan, 0)
+
+    # Random perspective crop (2–8% inset per corner) before resize so repeated
+    # use of the same texture produces visibly different grain patterns
+    sH, sW = scan.shape[:2]
+    def _ri(dim):
+        return int(rng.uniform(0.02, 0.08) * dim)
+    src = np.array([
+        [_ri(sW),        _ri(sH)],
+        [sW - _ri(sW),   _ri(sH)],
+        [sW - _ri(sW),   sH - _ri(sH)],
+        [_ri(sW),        sH - _ri(sH)],
+    ], dtype=np.float32)
+    dst = np.array([[0, 0], [sW, 0], [sW, sH], [0, sH]], dtype=np.float32)
+    M = cv2.getPerspectiveTransform(src, dst)
+    scan = cv2.warpPerspective(scan, M, (sW, sH))
+
     scan_resized = cv2.resize(scan, (W, H), interpolation=cv2.INTER_LINEAR)
 
     # Reduce scan contrast/brightness so texture noise doesn't bleed into text:
-    # remap pixel values from [0,255] → [200,255] (subtle paper grain only)
+    # remap pixel values from [0,255] → [155,255] (subtle paper grain only)
     scan_f = scan_resized.astype(np.float32)
     scan_f = scan_f * (100.0 / 255.0) + 155.0
     scan_f = np.clip(scan_f, 0, 255)
@@ -445,12 +466,12 @@ def _process_entry(args):
         return img_name, new_entry
 
     elif r < clean_prob + scan_prob:
-        result_img, _ = _apply_scan(src_path, scan_imgs)
+        result_img, _ = _apply_scan(src_path, scan_imgs, rng)
         new_polygons = polygons
     else:
         if not corners_cache or not pic_imgs:
             # Fallback to scan if no pics available
-            result_img, _ = _apply_scan(src_path, scan_imgs)
+            result_img, _ = _apply_scan(src_path, scan_imgs, rng)
             new_polygons = polygons
         else:
             result_img, new_polygons = _apply_pics(src_path, polygons, pic_imgs, corners_cache, rng)

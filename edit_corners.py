@@ -44,6 +44,14 @@ def full_frame_quad(w, h):
     return [[0, 0], [w, 0], [w, h], [0, h]]
 
 
+def detection_to_quad(img, w, h):
+    """Run auto-detect and clip result to image bounds. Returns a quad or None."""
+    quad = detect_paper_quad(img)
+    if quad is None:
+        return None
+    return [[min(w, max(0.0, float(x))), min(h, max(0.0, float(y)))] for x, y in quad]
+
+
 def canonicalize(quad, w, h):
     """Re-order TL,TR,BR,BL and clip to image bounds (matches augment_gen)."""
     ordered = _order_quad([list(p) for p in quad])
@@ -87,7 +95,7 @@ class CornerEditor:
 
         quad = self.cache.get(fname)
         if quad is None:
-            quad = detect_paper_quad(self.img) or full_frame_quad(self.w, self.h)
+            quad = detection_to_quad(self.img, self.w, self.h) or full_frame_quad(self.w, self.h)
         self.quad = [[float(x), float(y)] for x, y in quad]
         self.drag = None
 
@@ -169,11 +177,11 @@ class CornerEditor:
             elif key == ord("s"):
                 self.save_disk()
             elif key == ord("r"):
-                quad = detect_paper_quad(self.img)
+                quad = detection_to_quad(self.img, self.w, self.h)
                 if quad is None:
                     print("  auto-detect failed; leaving corners unchanged")
                 else:
-                    self.quad = [[float(x), float(y)] for x, y in quad]
+                    self.quad = quad
             elif key == ord("f"):
                 self.quad = [[float(x), float(y)]
                              for x, y in full_frame_quad(self.w, self.h)]

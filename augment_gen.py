@@ -277,6 +277,20 @@ def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache, rng):
         return None, None
     fH, fW = photo.shape[:2]
 
+    # Tight-crop around the paper quad so it fills most of the frame.
+    # Expands the quad's axis-aligned bounding box by 10–15% on each side,
+    # then crops the photo and offsets the cached corners into the new space.
+    quad_raw = np.array(corners_cache[pic_fname], dtype=np.float32)
+    xs, ys = quad_raw[:, 0], quad_raw[:, 1]
+    pad_x = (xs.max() - xs.min()) * rng.uniform(0.10, 0.15)
+    pad_y = (ys.max() - ys.min()) * rng.uniform(0.10, 0.15)
+    cx0 = max(0, int(xs.min() - pad_x))
+    cy0 = max(0, int(ys.min() - pad_y))
+    cx1 = min(fW, int(xs.max() + pad_x))
+    cy1 = min(fH, int(ys.max() + pad_y))
+    photo = photo[cy0:cy1, cx0:cx1]
+    fH, fW = photo.shape[:2]
+
     # Random horizontal / vertical flip of background
     flip_h = rng.random() < 0.5
     flip_v = rng.random() < 0.3
@@ -300,8 +314,8 @@ def _apply_pics(page_png_path, polygons, pic_imgs, corners_cache, rng):
     H_bg = cv2.getPerspectiveTransform(bg_src, bg_dst)
     photo = cv2.warpPerspective(photo, H_bg, (fW, fH))
 
-    quad = corners_cache[pic_fname]   # [[x,y]*4] TL,TR,BR,BL
-    quad_pts = np.array(quad, dtype=np.float32)
+    # quad_raw already offset into the cropped frame
+    quad_pts = quad_raw - np.array([cx0, cy0], dtype=np.float32)
 
     # Keep quad_pts in sync with the flip + perspective crop applied to the photo,
     # then re-order so TL/TR/BR/BL labels match actual spatial positions.

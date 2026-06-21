@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pagen"
+version = "0.1.0"
+description = "Arabic document image dataset generator for text-detection training"
+requires-python = ">=3.10"
+dependencies = [
+    "weasyprint",
+    "pymupdf",
+    "beautifulsoup4",
+    "markdown",
+    "opencv-python",
+    "pillow",
+    "numpy",
+    "fonttools",
+    "openai",
+]
+
+[project.optional-dependencies]
+dotenv = ["python-dotenv"]
+viz = ["arabic-reshaper", "matplotlib"]
+
+[project.scripts]
+pagen = "pagen.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pagen*"]

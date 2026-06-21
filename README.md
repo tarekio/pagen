@@ -1,10 +1,8 @@
 # Pagen: Arabic Text-Detection Data Generator
 
-Pagen is a simple Python script that generates single-page synthetic Arabic documents using Markdown templates, producing **word-level polygon annotations** for training and evaluating text-detection (and OCR) models.
+Pagen generates synthetic Arabic document images with **word-level polygon annotations** for training and evaluating text-detection (and OCR) models. It produces train and val splits in a single command, with realistic augmentation (scan textures, photo perspective warp, photometric degradation) fused into generation — one final image per document, no intermediate copies.
 
-It supports random generation from a word list or context-aware completion using local LLMs via Ollama. It properly maps numbers to Eastern Arabic numerals and renders the files as right-to-left.
-
-The output directory follows the [doctr](https://github.com/mindee/doctr) detection-dataset layout: images go in an `images/` subfolder and the annotations are written to a single **`labels.json`** at the root (alongside a plain-text **ground truth** `.txt` per document). Each entry of `labels.json` is keyed by the image's bare filename, in the doctr detection format:
+The output follows the [doctr](https://github.com/mindee/doctr) detection-dataset layout:
 
 ```json
 {
@@ -17,71 +15,213 @@ The output directory follows the [doctr](https://github.com/mindee/doctr) detect
 }
 ```
 
-Each polygon is a 4-point quadrilateral (top-left, top-right, bottom-right, bottom-left) wrapping a single word, in image pixel coordinates, and `labels[i]` is the text of `polygons[i]` (parallel lists). Rendering is done with WeasyPrint (Markdown → HTML → PDF). The text and word grouping come from **WeasyPrint's layout tree** (each word is wrapped in a span), so the labels are the source text — Arabic shaping and Eastern-Arabic digits stay correct, unlike text extracted from a PDF. **PyMuPDF** rasterizes that same PDF to the PNG and also supplies the tight per-glyph geometry: for each word, the glyph boxes inside it are unioned (so descenders and detached dots are fully enclosed) and then shrunk to the actual rendered ink, so the polygon fits the visible glyphs snugly regardless of the font's em-box metrics.
+Each polygon is a 4-point quadrilateral (TL, TR, BR, BL) wrapping a single word. Rendering uses WeasyPrint (Markdown → HTML → PDF); word labels come from WeasyPrint's layout tree so Arabic shaping and Eastern-Arabic digits are always correct. PyMuPDF rasterizes the PDF and supplies tight per-glyph geometry so polygons fit the visible ink rather than the loose em-box.
 
 ## Project Structure
-- `detect_gen.py`: The detection-dataset generator (PNG + TXT + polygon `labels.json`), described below.
-- `eval_gen.py`: A simpler evaluation generator that outputs only an image (PDF/PNG) and a TXT ground truth per document, with no polygon annotations.
-- `templates/`: Directory containing Markdown template files.
-- `fonts/`: (User provided) Directory containing custom Arabic `.ttf` font files used when rendering. You will need to add your own `.ttf` fonts here. A good source is [Google Fonts](https://fonts.google.com/?subset=arabic).
-- `corpus.txt`: (User provided) Create your own text file containing lexicon words for random generation, or bypass this by using the `--ollama` flag to generate content.
+
+```
+pagen/              Python package (single entry point)
+  corpus.py         Word list loading
+  fonts.py          Font discovery (skips color fonts)
+  llm.py            OpenAI-compatible LLM client (default: Ollama)
+  text.py           Arabic normalization, digit conversion, placeholder fill
+  render.py         Markdown → PDF → PNG + polygons (in-memory)
+  augment.py        Scan / photo-warp / clean augmentation paths
+  corners.py        Paper corner cache, interactive editor, overlay export
+  visualize.py      Dataset validator and polygon overlay renderer
+  templates.py      LLM-based markdown template generation
+  pipeline.py       Fused render+augment worker, train/val/eval orchestration
+  cli.py            All subcommands + interactive wizard
+templates/          Markdown document templates (reused across runs)
+fonts/              Arabic .ttf fonts (user-provided)
+images/
+  images_pics/      Photo backgrounds for perspective warp augmentation
+  images_scan/      Scan textures for multiply-blend augmentation
+corpus.txt          Word list for random placeholder fill (user-provided)
+```
 
 ## Requirements
 
-WeasyPrint needs a few system libraries (Pango, Cairo, etc.). `detect_gen.py` rasterizes via PyMuPDF, which bundles its own MuPDF (no system packages). `eval_gen.py` rasterizes via `pdf2image`, which needs Poppler (`poppler-utils`).
+### System dependencies (Linux/Debian)
 
-### System Dependencies
+WeasyPrint needs Pango, Cairo, and friends. PyMuPDF bundles its own MuPDF — no extra system packages needed for rasterization.
 
-**For Linux (Ubuntu/Debian):**
 ```bash
-sudo apt-get update
-# Dependencies for weasyprint (pango, cairo, etc.); poppler-utils is for eval_gen.py (pdf2image)
-sudo apt-get install build-essential python3-dev python3-pip python3-setuptools python3-wheel python3-cffi libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-dev shared-mime-info poppler-utils
+sudo apt-get install build-essential python3-dev python3-cffi \
+  libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 \
+  libffi-dev shared-mime-info
 ```
 
-### Python Dependencies
-
-Install the required Python packages from the `requirements.txt`:
+### Python dependencies
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
+pip install -e .
+# or without editable install:
 pip install -r requirements.txt
 ```
 
-*(Note: `ollama` is optional but recommended if you want realistic document generation using local LLMs. `weasyprint` and `pymupdf` are required — WeasyPrint renders the PDF, PyMuPDF rasterizes it to PNG and extracts the word polygons).*
-
-## Generation Instructions
-
-Run `detect_gen.py` to generate documents. The script processes a random template, populates the content placeholders, writes a PNG image to `images/` and a TXT ground truth per document, and appends the polygon annotations to `labels.json` in the output directory.
+Optional extras:
 
 ```bash
-python detect_gen.py [options]
+pip install python-dotenv          # auto-load .env for API keys
+pip install arabic-reshaper matplotlib  # pagen visualize --show
 ```
 
-### Command Line Arguments
+### Fonts
 
-- `-o`, `--output` : The output directory for the dataset (defaults to `output`). Images are written to `output/images/` and `output/labels.json` is written/updated here.
-- `-c`, `--count` : Number of documents to generate (defaults to `1`).
-- `--dpi` : Raster resolution for the PNGs (defaults to `150`).
-- `--keep-pdf` : Also save the intermediate `.pdf` for each document (off by default).
-- `--ollama` : Use Ollama to generate context-appropriate text instead of random words (requires the `ollama` package).
-- `--ollama-model` : Specify an Ollama model to use, for example `llama3` (defaults to `llama3`).
+Drop Arabic `.ttf` files into `fonts/`. A good source is [Google Fonts](https://fonts.google.com/?subset=arabic). Color fonts (COLR/SVG) are skipped automatically.
 
-Re-running into an existing output directory **appends** to `labels.json` (new images are numbered after the existing ones in `images/`) rather than overwriting it.
+### Corpus
 
-The result is ready to load with doctr's `DetectionDataset(img_folder="output/images", label_path="output/labels.json")`.
+Create `corpus.txt` with one or more Arabic words per line (space-separated is fine). Without it, a tiny built-in fallback is used. You can also point to a directory of word files via `--corpus`.
 
-### Examples
+## Quickstart
 
-**Generate 5 random documents into the `output` directory:**
 ```bash
-python detect_gen.py -c 5
+# Interactive wizard — prompts for counts, output dir, mode
+pagen
+
+# Or specify everything:
+pagen dataset --train 500 --val 100 -o data/
 ```
 
-**Generate 10 documents into a specific `data/` directory using Ollama (Llama 3):**
+The result loads directly with doctr:
+
+```python
+from doctr.datasets import DetectionDataset
+ds = DetectionDataset(img_folder="data/train/images", label_path="data/train/labels.json")
+```
+
+## Commands
+
+### `pagen dataset` — generate a detection dataset
+
 ```bash
-python detect_gen.py -c 10 -o data --ollama --ollama-model llama3
+pagen dataset --train N --val N [options]
 ```
 
-*(If you use Ollama, ensure the Ollama server is running locally and the model `llama3` is pulled: `ollama run llama3`)*
+| Flag | Default | Description |
+|---|---|---|
+| `--train N` | — | Number of training documents |
+| `--val N` | — | Number of validation documents |
+| `-o DIR` | `output` | Root output directory; splits go in `DIR/train` and `DIR/val` |
+| `--pdf-only` | off | Skip augmentation; produce clean rendered images |
+| `--keep-txt` | off | Save plain-text word labels per page (`.txt`) |
+| `--keep-pdf` | off | Save the intermediate PDF per document |
+| `--dpi` | 150 | Raster resolution |
+| `--workers` | all CPUs | Parallel worker processes |
+| `--seed` | 42 | RNG seed |
+| `--templates-dir` | `templates` | Directory of `.md` templates |
+| `--corpus` | auto | Corpus file or directory |
+| `--fonts-dir` | `fonts` | Directory of `.ttf` fonts |
+
+**Augmentation flags** (ignored with `--pdf-only`):
+
+| Flag | Default | Description |
+|---|---|---|
+| `--clean-prob` | 0.10 | Fraction of images kept clean |
+| `--scan-prob` | 0.45 | Fraction composited onto a scan texture |
+| `--pics-prob` | 0.45 | Fraction perspective-warped onto a background photo |
+| `--scan-dir` | `images/images_scan` | Scan texture images |
+| `--pics-dir` | `images/images_pics` | Background photo images |
+
+**LLM content fill** (off by default — uses random corpus words):
+
+| Flag | Default | Description |
+|---|---|---|
+| `--llm` | off | Enable LLM-based placeholder fill |
+| `--llm-base-url` | `http://localhost:11434/v1` | OpenAI-compatible API endpoint |
+| `--llm-model` | `llama3` | Model name |
+| `--api-key-env` | `OPENAI_API_KEY` | Env var holding the API key (never a CLI flag) |
+
+Re-running into an existing output directory **appends** — new IDs continue after existing ones and `labels.json` is preserved.
+
+**Examples:**
+
+```bash
+# 1000 augmented training docs + 200 val, random fill
+pagen dataset --train 1000 --val 200 -o data/
+
+# Clean (no augmentation), save txt and pdf alongside images
+pagen dataset --train 50 --val 10 --pdf-only --keep-txt --keep-pdf -o data/
+
+# LLM fill via Ollama (must be running: ollama serve)
+pagen dataset --train 100 --val 20 --llm --llm-model llama3
+
+# LLM fill via any OpenAI-compatible provider
+OPENAI_API_KEY=sk-... pagen dataset --train 100 --val 20 \
+  --llm --llm-base-url https://api.openai.com/v1 --llm-model gpt-4o-mini
+```
+
+---
+
+### `pagen eval` — generate eval images (no polygon annotations)
+
+Produces a PNG + plain-text ground truth per document. No `labels.json`.
+
+```bash
+pagen eval -c 50 -o data/eval
+```
+
+---
+
+### `pagen templates` — generate markdown templates via LLM
+
+Templates are generated once and reused across many dataset runs. This command is **never** invoked automatically by the dataset pipeline.
+
+```bash
+# Generate 10 templates from the built-in document-type pool
+pagen templates --random 10 --llm --llm-model llama3
+
+# Generate specific types
+pagen templates "عقد عمل" "خطاب توصية" --llm
+
+# From a file
+pagen templates --file my_types.txt --llm
+```
+
+---
+
+### `pagen corners` — manage paper corner cache
+
+The photo background augmentation path needs to know where the paper is in each photo. Corners are detected automatically the first time and cached in `paper_corners.json`. Each entry records its provenance (`"source": "auto"` or `"user"`). The cache is reconciled **append-only**: only newly-added images are auto-detected and saved — existing entries are never re-detected or overwritten, so corners you fix in the editor (`"source": "user"`) are safe across dataset runs.
+
+```bash
+# Build / refresh the cache (runs automatically during augmented dataset gen)
+pagen corners --pics-dir images/images_pics
+
+# Launch interactive editor to fix bad auto-detections
+pagen corners --pics-dir images/images_pics --edit
+
+# Export overlay images to inspect detections
+pagen corners --pics-dir images/images_pics --visualize --out corners_vis/
+```
+
+**Editor controls:** drag handle = move corner | `n`/`→` = next | `p`/`←` = prev | `r` = re-detect | `f` = full-frame | `s` = save | `q`/Esc = save + quit
+
+---
+
+### `pagen visualize` — validate and overlay a dataset
+
+```bash
+pagen visualize data/train --max 20 --save data/train/debug_vis/
+pagen visualize data/train --show   # requires matplotlib
+```
+
+Reports out-of-bounds polygons, label/polygon count mismatches, and empty labels.
+
+---
+
+## API key security
+
+API keys cannot be passed as CLI flags. Set the environment variable named by `--api-key-env` (default `OPENAI_API_KEY`):
+
+```bash
+export OPENAI_API_KEY=sk-...
+# or put it in a .env file (auto-loaded if python-dotenv is installed):
+echo "OPENAI_API_KEY=sk-..." > .env
+```
+
+Ollama requires no real key — the client sends a dummy value it ignores.

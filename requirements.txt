@@ -1,7 +1,14 @@
 weasyprint
 pymupdf
-pdf2image
 beautifulsoup4
 markdown
-ollama
 opencv-python
+pillow
+numpy
+fonttools
+openai
+# Optional: load secrets from .env file
+# python-dotenv
+# Optional: Arabic reshaping and matplotlib for pagen visualize --show
+# arabic-reshaper
+# matplotlib

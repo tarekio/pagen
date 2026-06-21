@@ -3,7 +3,7 @@
 Folds in edit_corners.py and visualize_corners.py.
 
 Subcommand surface (via cli.py):
-  pagen corners [--pics-dir DIR]           # rebuild/refresh the cache
+  pagen corners [--scene-dir DIR]          # rebuild/refresh the cache
   pagen corners --edit [--max-dim N]       # launch interactive editor
   pagen corners --visualize [--out DIR]    # write overlay images
 """

@@ -3,7 +3,7 @@
 import os
 import random
 
-DEFAULT_FONTS_DIR = "fonts"
+from pagen._paths import FONTS_DIR as DEFAULT_FONTS_DIR
 
 
 def _is_color_font(path):

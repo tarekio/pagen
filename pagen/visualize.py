@@ -25,7 +25,7 @@ except ImportError:
     def _shape(text: str) -> str:
         return text
 
-DEFAULT_FONT = os.path.join(os.path.dirname(__file__), "..", "fonts", "Amiri-Regular.ttf")
+from pagen._paths import DEFAULT_FONT
 
 
 def _load_font(font_path: str, size: int):

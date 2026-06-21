@@ -1,6 +1,6 @@
 # Pagen: Arabic Text-Detection Data Generator
 
-Pagen generates synthetic Arabic document images with **word-level polygon annotations** for training and evaluating text-detection (and OCR) models. It produces train and val splits in a single command, with realistic augmentation (scan textures, photo perspective warp, photometric degradation) fused into generation — one final image per document, no intermediate copies.
+Pagen generates synthetic Arabic document images with **word-level polygon annotations** for training and evaluating text-detection (and OCR) models. It produces train and val splits in a single command, with realistic augmentation (scan textures, photo perspective warp, photometric degradation) fused into generation: one final image per document, no intermediate copies.
 
 The output follows the [doctr](https://github.com/mindee/doctr) detection-dataset layout:
 
@@ -17,34 +17,11 @@ The output follows the [doctr](https://github.com/mindee/doctr) detection-datase
 
 Each polygon is a 4-point quadrilateral (TL, TR, BR, BL) wrapping a single word. Rendering uses WeasyPrint (Markdown → HTML → PDF); word labels come from WeasyPrint's layout tree so Arabic shaping and Eastern-Arabic digits are always correct. PyMuPDF rasterizes the PDF and supplies tight per-glyph geometry so polygons fit the visible ink rather than the loose em-box.
 
-## Project Structure
-
-```
-pagen/              Python package (single entry point)
-  corpus.py         Word list loading
-  fonts.py          Font discovery (skips color fonts)
-  llm.py            OpenAI-compatible LLM client (default: Ollama)
-  text.py           Arabic normalization, digit conversion, placeholder fill
-  render.py         Markdown → PDF → PNG + polygons (in-memory)
-  augment.py        Scan / photo-warp / clean augmentation paths
-  corners.py        Paper corner cache, interactive editor, overlay export
-  visualize.py      Dataset validator and polygon overlay renderer
-  templates.py      LLM-based markdown template generation
-  pipeline.py       Fused render+augment worker, train/val/eval orchestration
-  cli.py            All subcommands + interactive wizard
-templates/          Markdown document templates (reused across runs)
-fonts/              Arabic .ttf fonts (user-provided)
-images/
-  images_pics/      Photo backgrounds for perspective warp augmentation
-  images_scan/      Scan textures for multiply-blend augmentation
-corpus.txt          Word list for random placeholder fill (user-provided)
-```
-
 ## Requirements
 
 ### System dependencies (Linux/Debian)
 
-WeasyPrint needs Pango, Cairo, and friends. PyMuPDF bundles its own MuPDF — no extra system packages needed for rasterization.
+WeasyPrint needs Pango, Cairo, and friends. PyMuPDF bundles its own MuPDF; no extra system packages are needed for rasterization.
 
 ```bash
 sudo apt-get install build-essential python3-dev python3-cffi \
@@ -71,16 +48,25 @@ pip install arabic-reshaper matplotlib  # pagen visualize --show
 
 ### Fonts
 
-Drop Arabic `.ttf` files into `fonts/`. A good source is [Google Fonts](https://fonts.google.com/?subset=arabic). Color fonts (COLR/SVG) are skipped automatically.
+Drop Arabic `.ttf` files into `resources/fonts/` (or pass `--fonts-dir`). A good source is [Google Fonts](https://fonts.google.com/?subset=arabic). Color fonts (COLR/SVG) are skipped automatically.
 
 ### Corpus
 
-Create `corpus.txt` with one or more Arabic words per line (space-separated is fine). Without it, a tiny built-in fallback is used. You can also point to a directory of word files via `--corpus`.
+Add word files to `resources/corpora/` (one or more Arabic words per line; space-separated is fine), or point `--corpus` at a file or directory. Without any corpus, a tiny built-in fallback is used.
+
+### Images
+
+Augmentation draws on two folders of your own photos. [Unsplash](https://unsplash.com) is a good free source for both.
+
+- **`resources/images/scene/`** (`--scene-dir`): photos of a **blank sheet of paper lying in a real scene** (on a desk, table, floor, with surrounding clutter). The rendered document is perspective-warped onto the paper region and composited into the photo, so the model sees documents at realistic angles against busy backgrounds. The paper's four corners are detected automatically and cached in `paper_corners.json` (editable via `pagen corners --edit`), so pick photos where the sheet is clearly visible against its surroundings. Search Unsplash for *blank paper*, *paper on desk*, *empty document*.
+- **`resources/images/textures/`** (`--textures-dir`): flat **paper / scan textures** (plain paper grain, aged or stained paper, photocopier noise) used as full-frame overlays. The rendered document is multiply-blended onto the texture to mimic a scanned or photocopied page, with no perspective, just surface character. Search Unsplash for *paper texture*, *old paper*, *parchment*.
+
+The `--clean-prob` / `--textures-prob` / `--scene-prob` flags control how often each path (clean, texture overlay, scene warp) is chosen. If a folder is empty, its path is simply skipped.
 
 ## Quickstart
 
 ```bash
-# Interactive wizard — prompts for counts, output dir, mode
+# Interactive wizard: prompts for counts, output dir, mode
 pagen
 
 # Or specify everything:
@@ -96,7 +82,7 @@ ds = DetectionDataset(img_folder="data/train/images", label_path="data/train/lab
 
 ## Commands
 
-### `pagen dataset` — generate a detection dataset
+### `pagen dataset`: generate a detection dataset
 
 ```bash
 pagen dataset --train N --val N [options]
@@ -104,8 +90,8 @@ pagen dataset --train N --val N [options]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--train N` | — | Number of training documents |
-| `--val N` | — | Number of validation documents |
+| `--train N` | `0` | Number of training documents (omit to skip the split; at least one of train/val must be > 0) |
+| `--val N` | `0` | Number of validation documents (omit to skip the split) |
 | `-o DIR` | `output` | Root output directory; splits go in `DIR/train` and `DIR/val` |
 | `--pdf-only` | off | Skip augmentation; produce clean rendered images |
 | `--keep-txt` | off | Save plain-text word labels per page (`.txt`) |
@@ -122,12 +108,12 @@ pagen dataset --train N --val N [options]
 | Flag | Default | Description |
 |---|---|---|
 | `--clean-prob` | 0.10 | Fraction of images kept clean |
-| `--scan-prob` | 0.45 | Fraction composited onto a scan texture |
-| `--pics-prob` | 0.45 | Fraction perspective-warped onto a background photo |
-| `--scan-dir` | `images/images_scan` | Scan texture images |
-| `--pics-dir` | `images/images_pics` | Background photo images |
+| `--textures-prob` | 0.45 | Fraction composited onto a scan texture |
+| `--scene-prob` | 0.45 | Fraction perspective-warped onto a background photo |
+| `--textures-dir` | `resources/images/textures` | Scan texture images |
+| `--scene-dir` | `resources/images/scene` | Background photo images |
 
-**LLM content fill** (off by default — uses random corpus words):
+**LLM content fill** (off by default; uses random corpus words):
 
 | Flag | Default | Description |
 |---|---|---|
@@ -136,7 +122,7 @@ pagen dataset --train N --val N [options]
 | `--llm-model` | `llama3` | Model name |
 | `--api-key-env` | `OPENAI_API_KEY` | Env var holding the API key (never a CLI flag) |
 
-Re-running into an existing output directory **appends** — new IDs continue after existing ones and `labels.json` is preserved.
+Re-running into an existing output directory **appends**: new IDs continue after existing ones and `labels.json` is preserved.
 
 **Examples:**
 
@@ -157,7 +143,7 @@ OPENAI_API_KEY=sk-... pagen dataset --train 100 --val 20 \
 
 ---
 
-### `pagen eval` — generate eval images (no polygon annotations)
+### `pagen eval`: generate eval images (no polygon annotations)
 
 Produces a PNG + plain-text ground truth per document. No `labels.json`.
 
@@ -167,7 +153,7 @@ pagen eval -c 50 -o data/eval
 
 ---
 
-### `pagen templates` — generate markdown templates via LLM
+### `pagen templates`: generate markdown templates via LLM
 
 Templates are generated once and reused across many dataset runs. This command is **never** invoked automatically by the dataset pipeline.
 
@@ -184,26 +170,26 @@ pagen templates --file my_types.txt --llm
 
 ---
 
-### `pagen corners` — manage paper corner cache
+### `pagen corners`: manage paper corner cache
 
-The photo background augmentation path needs to know where the paper is in each photo. Corners are detected automatically the first time and cached in `paper_corners.json`. Each entry records its provenance (`"source": "auto"` or `"user"`). The cache is reconciled **append-only**: only newly-added images are auto-detected and saved — existing entries are never re-detected or overwritten, so corners you fix in the editor (`"source": "user"`) are safe across dataset runs.
+The photo background augmentation path needs to know where the paper is in each photo. Corners are detected automatically the first time and cached in `paper_corners.json`. Each entry records its provenance (`"source": "auto"` or `"user"`). The cache is reconciled **append-only**: only newly-added images are auto-detected and saved; existing entries are never re-detected or overwritten, so corners you fix in the editor (`"source": "user"`) are safe across dataset runs.
 
 ```bash
 # Build / refresh the cache (runs automatically during augmented dataset gen)
-pagen corners --pics-dir images/images_pics
+pagen corners --scene-dir resources/images/scene
 
 # Launch interactive editor to fix bad auto-detections
-pagen corners --pics-dir images/images_pics --edit
+pagen corners --scene-dir resources/images/scene --edit
 
 # Export overlay images to inspect detections
-pagen corners --pics-dir images/images_pics --visualize --out corners_vis/
+pagen corners --scene-dir resources/images/scene --visualize --out corners_vis/
 ```
 
 **Editor controls:** drag handle = move corner | `n`/`→` = next | `p`/`←` = prev | `r` = re-detect | `f` = full-frame | `s` = save | `q`/Esc = save + quit
 
 ---
 
-### `pagen visualize` — validate and overlay a dataset
+### `pagen visualize`: validate and overlay a dataset
 
 ```bash
 pagen visualize data/train --max 20 --save data/train/debug_vis/
@@ -224,4 +210,4 @@ export OPENAI_API_KEY=sk-...
 echo "OPENAI_API_KEY=sk-..." > .env
 ```
 
-Ollama requires no real key — the client sends a dummy value it ignores.
+Ollama requires no real key; the client sends a dummy value it ignores.

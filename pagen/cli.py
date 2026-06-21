@@ -16,6 +16,14 @@ import argparse
 import os
 import sys
 
+from pagen._paths import (
+    DEFAULT_FONT,
+    FONTS_DIR,
+    SCENE_DIR,
+    TEMPLATES_DIR,
+    TEXTURES_DIR,
+)
+
 
 # ---------------------------------------------------------------------------
 # Shared LLM argument group
@@ -55,7 +63,7 @@ def _load_resources(args):
     from pagen.corpus import load_words
     from pagen.fonts import list_fonts
 
-    templates_dir = getattr(args, "templates_dir", "templates")
+    templates_dir = getattr(args, "templates_dir", TEMPLATES_DIR)
     if not os.path.isdir(templates_dir):
         sys.exit(f"ERROR: templates directory not found: {templates_dir}")
     template_paths = [
@@ -66,7 +74,7 @@ def _load_resources(args):
     if not template_paths:
         sys.exit(f"ERROR: no .md templates found in {templates_dir}")
 
-    fonts_dir = getattr(args, "fonts_dir", "fonts")
+    fonts_dir = getattr(args, "fonts_dir", FONTS_DIR)
     fonts = list_fonts(fonts_dir)
 
     corpus = getattr(args, "corpus", None)
@@ -106,12 +114,12 @@ def _wizard() -> argparse.Namespace:
         dpi=150,
         workers=os.cpu_count() or 4,
         seed=42,
-        clean_prob=0.10, scan_prob=0.45, pics_prob=0.45,
-        pics_dir="images/images_pics",
-        scan_dir="images/images_scan",
-        templates_dir="templates",
+        clean_prob=0.10, textures_prob=0.45, scene_prob=0.45,
+        scene_dir=SCENE_DIR,
+        textures_dir=TEXTURES_DIR,
+        templates_dir=TEMPLATES_DIR,
         corpus=None,
-        fonts_dir="fonts",
+        fonts_dir=FONTS_DIR,
     )
     return ns
 
@@ -131,26 +139,26 @@ def _cmd_dataset(args):
     augment_ctx = None
 
     if augment:
-        total = args.clean_prob + args.scan_prob + args.pics_prob
+        total = args.clean_prob + args.textures_prob + args.scene_prob
         clean_prob = args.clean_prob / total
-        scan_prob = args.scan_prob / total
+        scan_prob = args.textures_prob / total
 
         scan_exts = {".jpg", ".jpeg", ".png", ".bmp"}
         scan_imgs = (
-            [os.path.join(args.scan_dir, f)
-             for f in os.listdir(args.scan_dir)
+            [os.path.join(args.textures_dir, f)
+             for f in os.listdir(args.textures_dir)
              if os.path.splitext(f)[1].lower() in scan_exts]
-            if os.path.isdir(args.scan_dir) else []
+            if os.path.isdir(args.textures_dir) else []
         )
 
         corners_cache, pic_imgs = {}, []
-        if os.path.isdir(args.pics_dir):
+        if os.path.isdir(args.scene_dir):
             print("Reconciling paper corner cache…")
             # Appends auto-detected corners for any NEW images only; existing
             # entries (and user-edited ones) are never overwritten. Steady-state
             # runs with no new images leave the cache file untouched.
-            corners_cache = ensure_corners_cache(args.pics_dir)
-            pic_imgs = [os.path.join(args.pics_dir, f) for f in corners_cache]
+            corners_cache = ensure_corners_cache(args.scene_dir)
+            pic_imgs = [os.path.join(args.scene_dir, f) for f in corners_cache]
 
         print(f"Scan textures: {len(scan_imgs)}, photo backgrounds: {len(pic_imgs)}")
         augment_ctx = AugmentContext(
@@ -262,13 +270,13 @@ def _cmd_corners(args):
     from pagen.corners import build_cache, launch_editor, export_overlays
 
     if args.edit:
-        launch_editor(args.pics_dir, args.max_dim)
+        launch_editor(args.scene_dir, args.max_dim)
     elif args.visualize:
-        out_dir = args.out or os.path.join(args.pics_dir, "corners_vis")
-        export_overlays(args.pics_dir, out_dir)
+        out_dir = args.out or os.path.join(args.scene_dir, "corners_vis")
+        export_overlays(args.scene_dir, out_dir)
     else:
-        cache = build_cache(args.pics_dir)
-        print(f"Cache has {len(cache)} entries in {args.pics_dir}")
+        cache = build_cache(args.scene_dir)
+        print(f"Cache has {len(cache)} entries in {args.scene_dir}")
 
 
 # ---------------------------------------------------------------------------
@@ -318,17 +326,17 @@ def _build_parser() -> argparse.ArgumentParser:
     ds.add_argument("--dpi", type=int, default=150)
     ds.add_argument("--workers", type=int, default=os.cpu_count() or 4)
     ds.add_argument("--seed", type=int, default=42)
-    ds.add_argument("--templates-dir", default="templates", metavar="DIR")
+    ds.add_argument("--templates-dir", default=TEMPLATES_DIR, metavar="DIR")
     ds.add_argument("--corpus", default=None, metavar="PATH",
-                    help="Corpus file or directory (default: corpora/ or corpus.txt)")
-    ds.add_argument("--fonts-dir", default="fonts", metavar="DIR")
+                    help="Corpus file or directory (default: resources/corpora/)")
+    ds.add_argument("--fonts-dir", default=FONTS_DIR, metavar="DIR")
     # Augment knobs
     ag = ds.add_argument_group("Augmentation")
     ag.add_argument("--clean-prob", type=float, default=0.10)
-    ag.add_argument("--scan-prob", type=float, default=0.45)
-    ag.add_argument("--pics-prob", type=float, default=0.45)
-    ag.add_argument("--pics-dir", default="images/images_pics", metavar="DIR")
-    ag.add_argument("--scan-dir", default="images/images_scan", metavar="DIR")
+    ag.add_argument("--textures-prob", type=float, default=0.45)
+    ag.add_argument("--scene-prob", type=float, default=0.45)
+    ag.add_argument("--scene-dir", default=SCENE_DIR, metavar="DIR")
+    ag.add_argument("--textures-dir", default=TEXTURES_DIR, metavar="DIR")
     _add_llm_args(ds)
 
     # -- eval ---------------------------------------------------------------
@@ -338,9 +346,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--dpi", type=int, default=150)
     ev.add_argument("--workers", type=int, default=os.cpu_count() or 4)
     ev.add_argument("--seed", type=int, default=42)
-    ev.add_argument("--templates-dir", default="templates", metavar="DIR")
+    ev.add_argument("--templates-dir", default=TEMPLATES_DIR, metavar="DIR")
     ev.add_argument("--corpus", default=None, metavar="PATH")
-    ev.add_argument("--fonts-dir", default="fonts", metavar="DIR")
+    ev.add_argument("--fonts-dir", default=FONTS_DIR, metavar="DIR")
     _add_llm_args(ev)
 
     # -- templates ----------------------------------------------------------
@@ -351,16 +359,16 @@ def _build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--file", "-f", metavar="FILE",
                     help="Text file with one document type per line")
     tp.add_argument("--slug", help="Filename slug (single doc type only)")
-    tp.add_argument("-o", "--output", default="templates", metavar="DIR")
+    tp.add_argument("-o", "--output", default=TEMPLATES_DIR, metavar="DIR")
     _add_llm_args(tp)
 
     # -- corners ------------------------------------------------------------
     co = sub.add_parser("corners", help="Manage paper corner cache for photo backgrounds")
-    co.add_argument("--pics-dir", default="images/images_pics", metavar="DIR")
+    co.add_argument("--scene-dir", default=SCENE_DIR, metavar="DIR")
     co.add_argument("--edit", action="store_true", help="Launch interactive editor")
     co.add_argument("--visualize", action="store_true", help="Export corner overlay images")
     co.add_argument("--out", default=None, metavar="DIR",
-                    help="Output dir for overlays (default: <pics-dir>/corners_vis)")
+                    help="Output dir for overlays (default: <scene-dir>/corners_vis)")
     co.add_argument("--max-dim", type=int, default=1100,
                     help="Max display dimension for editor")
 
@@ -423,8 +431,7 @@ def main():
         font_path = args.font
         if font_path is None:
             # Try to find Amiri-Regular in the fonts dir
-            candidate = os.path.join("fonts", "Amiri-Regular.ttf")
-            font_path = candidate if os.path.exists(candidate) else None
+            font_path = DEFAULT_FONT if os.path.exists(DEFAULT_FONT) else None
         args.font = font_path
         _cmd_visualize(args)
 

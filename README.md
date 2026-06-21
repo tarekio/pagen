@@ -1,6 +1,8 @@
 # Pagen: Arabic Text-Detection Data Generator
 
-Pagen generates synthetic Arabic document images with **word-level polygon annotations** for training and evaluating text-detection (and OCR) models. It produces train and val splits in a single command, with realistic augmentation (scan textures, photo perspective warp, photometric degradation) fused into generation: one final image per document, no intermediate copies.
+Pagen generates synthetic realistic-looking and diverse document images with **word-level polygon annotations** for training and evaluating text-detection (and OCR) models. 
+
+It produces train and val splits in a single command, with realistic augmentation (scan textures, photo perspective warp, photometric degradation) fused into generation: one final image per document, no intermediate copies.
 
 The output follows the [doctr](https://github.com/mindee/doctr) detection-dataset layout:
 
@@ -172,7 +174,9 @@ pagen templates --file my_types.txt --llm
 
 ### `pagen corners`: manage paper corner cache
 
-The photo background augmentation path needs to know where the paper is in each photo. Corners are detected automatically the first time and cached in `paper_corners.json`. Each entry records its provenance (`"source": "auto"` or `"user"`). The cache is reconciled **append-only**: only newly-added images are auto-detected and saved; existing entries are never re-detected or overwritten, so corners you fix in the editor (`"source": "user"`) are safe across dataset runs.
+The photo background augmentation path needs to know where the paper is in each photo. Corners are detected automatically the first time and cached in `paper_corners.json`. The automatic detection is not perfect, so you can inspect and fix the cache with an interactive editor. 
+
+Each entry records its provenance (`"source": "auto"` or `"user"`). The cache is reconciled **append-only**: only newly-added images are auto-detected and saved; existing entries are never re-detected or overwritten, so corners you fix in the editor (`"source": "user"`) are safe across dataset runs.
 
 ```bash
 # Build / refresh the cache (runs automatically during augmented dataset gen)

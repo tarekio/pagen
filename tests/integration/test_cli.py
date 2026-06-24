@@ -205,3 +205,121 @@ def test_cli_visualize_end_to_end(tmp_path, monkeypatch):
                         ["pagen", "visualize", str(ds), "--save", str(save)])
     cli.main()
     assert (save / "1.png").exists()
+
+
+# ---------------------------------------------------------------------------
+# Subcommand handler bodies (downstream generators mocked)
+# ---------------------------------------------------------------------------
+
+def _templates_dir(tmp_path):
+    d = tmp_path / "tpl"
+    d.mkdir()
+    (d / "a.md").write_text("# {WORDS_1}", encoding="utf-8")
+    return d
+
+
+def test_cmd_eval_invokes_generate_eval(tmp_path, monkeypatch):
+    import pagen.pipeline as pipeline
+    captured = {}
+    monkeypatch.setattr(pipeline, "generate_eval", lambda **kw: captured.update(kw))
+    ns = argparse.Namespace(
+        templates_dir=str(_templates_dir(tmp_path)), fonts_dir=str(tmp_path / "nofonts"),
+        corpus=None, llm=False, output="out/eval", count=3, dpi=150, workers=1, seed=42,
+    )
+    cli._cmd_eval(ns)
+    assert captured["output_dir"] == "out/eval"
+    assert captured["count"] == 3
+    assert captured["llm_config"] is None
+
+
+def test_cmd_dataset_pdf_only_calls_generate_split_for_train(tmp_path, monkeypatch):
+    import pagen.pipeline as pipeline
+    calls = []
+    monkeypatch.setattr(pipeline, "generate_split", lambda *a, **k: calls.append((a, k)))
+    ns = argparse.Namespace(
+        templates_dir=str(_templates_dir(tmp_path)), fonts_dir=str(tmp_path / "nofonts"),
+        corpus=None, llm=False, pdf_only=True, train=1, val=0, output="out",
+        dpi=150, workers=1, seed=42, keep_txt=False, keep_pdf=False,
+    )
+    cli._cmd_dataset(ns)
+    assert len(calls) == 1                 # train only (val == 0)
+    assert calls[0][1]["augment"] is False  # pdf-only disables augmentation
+
+
+def test_cmd_dataset_augment_reconciles_corners(tmp_path, monkeypatch):
+    import pagen.pipeline as pipeline
+    import pagen.augment as aug
+    calls = []
+    monkeypatch.setattr(pipeline, "generate_split", lambda *a, **k: calls.append(k))
+    monkeypatch.setattr(aug, "ensure_corners_cache", lambda d: {})
+    scene = tmp_path / "scene"; scene.mkdir()
+    textures = tmp_path / "tex"; textures.mkdir()
+    ns = argparse.Namespace(
+        templates_dir=str(_templates_dir(tmp_path)), fonts_dir=str(tmp_path / "nofonts"),
+        corpus=None, llm=False, pdf_only=False, train=1, val=0, output="out",
+        dpi=150, workers=1, seed=42, keep_txt=False, keep_pdf=False,
+        clean_prob=0.1, textures_prob=0.45, scene_prob=0.45,
+        scene_dir=str(scene), textures_dir=str(textures),
+    )
+    cli._cmd_dataset(ns)
+    assert len(calls) == 1
+    assert calls[0]["augment"] is True
+    assert calls[0]["augment_ctx"] is not None
+
+
+def test_cmd_corners_default_builds_cache(monkeypatch):
+    import pagen.corners as co
+    called = {}
+    monkeypatch.setattr(co, "build_cache", lambda d: called.setdefault("build", d) or {})
+    ns = argparse.Namespace(scene_dir="scenes", edit=False, visualize=False,
+                            out=None, max_dim=1100)
+    cli._cmd_corners(ns)
+    assert called["build"] == "scenes"
+
+
+def test_cmd_corners_edit_launches_editor(monkeypatch):
+    import pagen.corners as co
+    called = {}
+    monkeypatch.setattr(co, "launch_editor", lambda d, m: called.setdefault("edit", (d, m)))
+    ns = argparse.Namespace(scene_dir="scenes", edit=True, visualize=False,
+                            out=None, max_dim=900)
+    cli._cmd_corners(ns)
+    assert called["edit"] == ("scenes", 900)
+
+
+def test_cmd_corners_visualize_exports_overlays(monkeypatch):
+    import pagen.corners as co
+    called = {}
+    monkeypatch.setattr(co, "export_overlays", lambda d, o: called.setdefault("vis", (d, o)))
+    ns = argparse.Namespace(scene_dir="scenes", edit=False, visualize=True,
+                            out=None, max_dim=1100)
+    cli._cmd_corners(ns)
+    # out defaults to <scene-dir>/corners_vis
+    assert called["vis"][0] == "scenes"
+    assert called["vis"][1].endswith("corners_vis")
+
+
+def test_cmd_visualize_passes_args_through(monkeypatch):
+    import pagen.visualize as viz
+    captured = {}
+    monkeypatch.setattr(viz, "visualize_dataset", lambda **kw: captured.update(kw))
+    ns = argparse.Namespace(path="ds", no_labels=True, max=7, debug=False,
+                            show=False, save="out", seed=3, font="f.ttf")
+    cli._cmd_visualize(ns)
+    assert captured["path"] == "ds"
+    assert captured["show_labels"] is False   # --no-labels inverts
+    assert captured["max_images"] == 7
+
+
+# ---------------------------------------------------------------------------
+# _wizard (input() mocked)
+# ---------------------------------------------------------------------------
+
+def test_wizard_parses_answers(monkeypatch):
+    answers = iter(["5", "2", "myout", "y", "n", "n", "n"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    ns = cli._wizard()
+    assert (ns.train, ns.val, ns.output) == (5, 2, "myout")
+    assert ns.pdf_only is True
+    assert ns.keep_txt is False and ns.keep_pdf is False and ns.llm is False
+    assert ns.dpi == 150 and ns.seed == 42

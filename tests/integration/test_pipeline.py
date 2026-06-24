@@ -149,3 +149,25 @@ def test_generate_split_end_to_end_and_append(tmp_path):
     labels2 = json.loads((tmp_path / "train" / "labels.json").read_text(encoding="utf-8"))
     assert set(labels).issubset(set(labels2))
     assert len(labels2) > len(labels)
+
+
+@pytest.mark.slow
+@pytest.mark.render
+def test_generate_eval_end_to_end(tmp_path):
+    from pagen._paths import DEFAULT_FONT
+
+    tpl = tmp_path / "t.md"
+    tpl.write_text("# عنوان\n\n{WORDS_3}\n", encoding="utf-8")
+    out = str(tmp_path / "eval")
+    pipeline.generate_eval(
+        out, count=2,
+        template_paths=[str(tpl)], fonts=[DEFAULT_FONT],
+        words=["كلمة", "مثال", "نص"], dpi=72, workers=1, seed=1,
+    )
+    pngs = [p for p in os.listdir(out) if p.endswith(".png")]
+    txts = [p for p in os.listdir(out) if p.endswith(".txt")]
+    assert len(pngs) == 2
+    assert len(txts) == 2          # one plain-text ground-truth per page
+    # Each image has a matching .txt ground-truth file.
+    for png in pngs:
+        assert png[:-4] + ".txt" in txts

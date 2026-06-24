@@ -113,6 +113,20 @@ def test_editor_commit_keeps_source_when_unchanged(tmp_path, make_scene_image, m
     assert ed.cache["img.jpg"]["source"] == "auto"
 
 
+def test_editor_preserves_existing_user_entry_on_navigation(tmp_path, make_scene_image, monkeypatch):
+    # The core invariant: an existing user-edited entry must survive being
+    # loaded and navigated past — never re-detected or downgraded.  The helper
+    # makes detect_paper_quad return a DIFFERENT quad, so if the editor wrongly
+    # re-detected, the stored quad would change.
+    user_quad = [[12, 14], [180, 11], [185, 240], [9, 245]]
+    ed = _editor_with_image(tmp_path, make_scene_image, monkeypatch,
+                            cache={"img.jpg": augment._make_entry(user_quad, "user")})
+    expected = corners._canonicalize(user_quad, ed.w, ed.h)
+    ed._goto(1)   # single image -> wraps to itself, committing on the way
+    assert ed.cache["img.jpg"]["source"] == "user"
+    assert ed.cache["img.jpg"]["quad"] == expected   # user's quad, not detect's
+
+
 def test_editor_commit_marks_user_when_edited(tmp_path, make_scene_image, monkeypatch):
     entry = augment._make_entry([[10, 10], [190, 10], [190, 250], [10, 250]], "auto")
     ed = _editor_with_image(tmp_path, make_scene_image, monkeypatch, cache={"img.jpg": entry})

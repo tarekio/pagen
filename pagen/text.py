@@ -119,7 +119,7 @@ def _random_int(min_val: str, max_val: str) -> str:
 
 
 def _random_float(min_val: str, max_val: str) -> str:
-    return str(int(random.uniform(float(min_val), float(max_val))))
+    return f"{random.uniform(float(min_val), float(max_val)):.2f}"
 
 
 def _random_date() -> str:

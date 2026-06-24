@@ -1,0 +1,50 @@
+name: tests
+
+on:
+  # Run on pushes to main and on every PR.  Scoping push to main avoids the
+  # double run you get when a branch push and its PR both trigger the workflow.
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel an in-progress run when new commits land on the same branch/PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install system libraries
+        # weasyprint needs Pango/Cairo/gdk-pixbuf; OpenCV needs libGL + glib.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 \
+            libgdk-pixbuf-2.0-0 libcairo2 libffi8 libharfbuzz0b \
+            libgl1 libglib2.0-0t64 shared-mime-info fonts-liberation
+
+      - name: Install package and test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Run tests
+        # -o addopts="" overrides the default marker filter in pyproject.toml so
+        # the render/slow integration tests run too (the system libs above exist
+        # precisely to support them).
+        run: pytest -o addopts="" -ra

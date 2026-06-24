@@ -22,6 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 dotenv = ["python-dotenv"]
 viz = ["arabic-reshaper", "matplotlib"]
+test = ["pytest"]
 
 [project.scripts]
 pagen = "pagen.cli:main"
@@ -29,3 +30,14 @@ pagen = "pagen.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["pagen*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: end-to-end tests that run the real multiprocessing pipeline",
+    "render: tests that drive real weasyprint + pymupdf rendering",
+    "display: tests requiring a cv2 GUI / display (not CI-safe)",
+    "llm: tests that would hit a real LLM backend (always mock instead)",
+]
+# Fast by default: skip the heavy slices unless explicitly selected.
+addopts = "-m 'not slow and not render and not display and not llm'"

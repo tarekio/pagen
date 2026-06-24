@@ -390,16 +390,22 @@ def _build_parser() -> argparse.ArgumentParser:
 # Entry point
 # ---------------------------------------------------------------------------
 
+_SUBCOMMANDS = ("dataset", "eval", "templates", "corners", "visualize")
+
+
 def main():
+    # Default to the 'dataset' subcommand when none is given, so that both bare
+    # `pagen` (wizard) and `pagen --train N` work without typing 'dataset'.
+    # This must happen BEFORE parse_args: otherwise argparse reads a leading
+    # flag's value as the subcommand and errors with "invalid choice".
+    argv = sys.argv[1:]
+    if not argv or (argv[0] not in _SUBCOMMANDS and argv[0] not in ("-h", "--help")):
+        argv = ["dataset", *argv]
+
     parser = _build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    # Default subcommand = dataset; may trigger wizard
-    if args.subcommand is None or args.subcommand == "dataset":
-        if args.subcommand is None:
-            # Re-parse with 'dataset' defaults
-            args = _build_parser().parse_args(["dataset"] + sys.argv[1:])
-
+    if args.subcommand == "dataset":
         # Interactive wizard when train/val are unset and we're on a TTY
         if args.train is None and args.val is None:
             if sys.stdin.isatty():

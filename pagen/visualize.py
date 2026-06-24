@@ -28,7 +28,12 @@ except ImportError:
 from pagen._paths import DEFAULT_FONT
 
 
-def _load_font(font_path: str, size: int):
+def _load_font(font_path: str | None, size: int):
+    # font_path may be None when no usable font was found (e.g. the bundled
+    # fonts are gitignored and absent on a fresh checkout).  Fall back to the
+    # built-in default rather than letting ImageFont.truetype(None) raise.
+    if not font_path:
+        return ImageFont.load_default()
     try:
         return ImageFont.truetype(font_path, size)
     except OSError:

@@ -3,6 +3,18 @@
 from pagen import visualize
 
 
+def test_load_font_none_falls_back_to_default():
+    # font_path=None must not crash (this is the fresh-checkout case where the
+    # gitignored bundled fonts are absent and the CLI passes None through).
+    font = visualize._load_font(None, 24)
+    assert font is not None
+
+
+def test_load_font_missing_path_falls_back_to_default():
+    font = visualize._load_font("/no/such/font.ttf", 24)
+    assert font is not None
+
+
 def _entry(polygons, labels, dims):
     return {"polygons": polygons, "labels": labels, "img_dimensions": dims}
 

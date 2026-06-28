@@ -121,8 +121,8 @@ def build_full_html(html_content: str, font_face_css: str, font_family: str) -> 
                 direction: rtl;
                 text-align: right;
             }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 1em; margin-bottom: 1em; }}
-            th, td {{ border: 1px solid #000; padding: 0.5em; text-align: right; }}
+            table {{ width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 1em; margin-bottom: 1em; }}
+            th, td {{ border: 1px solid #000; padding: 0.5em; text-align: right; overflow-wrap: break-word; word-break: break-word; }}
             h1, h2 {{ text-align: center; }}
             .page-break {{ page-break-before: always; }}
         </style>

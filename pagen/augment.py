@@ -268,10 +268,6 @@ def _apply_scan(page_bgr: np.ndarray, scan_imgs: list[str], rng: random.Random) 
 # Path B — photo paper perspective warp
 # ---------------------------------------------------------------------------
 
-def _long_short(a, b):
-    return (a, b) if a >= b else (b, a)
-
-
 def _apply_pics(
     page_bgr: np.ndarray,
     polygons: list,
@@ -339,21 +335,12 @@ def _apply_pics(
         t = rng.uniform(0.0, 0.05)
         quad_pts[i] = quad_pts[i] + t * (centroid - quad_pts[i])
 
-    top_w = np.linalg.norm(quad_pts[1] - quad_pts[0])
-    bot_w = np.linalg.norm(quad_pts[2] - quad_pts[3])
-    left_h = np.linalg.norm(quad_pts[3] - quad_pts[0])
-    right_h = np.linalg.norm(quad_pts[2] - quad_pts[1])
-    quad_w = (top_w + bot_w) / 2.0
-    quad_h = (left_h + right_h) / 2.0
-
-    page_long, page_short = _long_short(pH, pW)
-    quad_long, quad_short = _long_short(quad_h, quad_w)
-
-    if (page_long == pH) == (quad_long == quad_h):
-        src_pts = np.array([[0, 0], [pW, 0], [pW, pH], [0, pH]], dtype=np.float32)
-    else:
-        src_pts = np.array([[0, pW], [0, 0], [pH, 0], [pH, pW]], dtype=np.float32)
-
+    # Map the page onto the paper quad upright (page TL,TR,BR,BL -> quad
+    # TL,TR,BR,BL).  We never rotate the page 90 degrees to match the paper's
+    # orientation: rotated text is wrong for OCR training even when it avoids
+    # stretching, so a portrait page on a landscape paper is allowed to distort
+    # instead of being turned sideways.
+    src_pts = np.array([[0, 0], [pW, 0], [pW, pH], [0, pH]], dtype=np.float32)
     H_mat = cv2.getPerspectiveTransform(src_pts, quad_pts)
     warped_page = cv2.warpPerspective(page_bgr, H_mat, (fW, fH), borderValue=(255, 255, 255))
 
@@ -390,8 +377,9 @@ def degrade(img_bgr: np.ndarray, rng: random.Random) -> np.ndarray:
     out = img_bgr.copy()
 
     if rng.random() < 0.5:
-        k = rng.choice([3, 5])
-        out = cv2.GaussianBlur(out, (k, k), 0)
+        # k=5 obliterates thin (~1-2px) Arabic strokes on small text, washing
+        # black ink to mid-gray; k=3 keeps it legible while still softening.
+        out = cv2.GaussianBlur(out, (3, 3), 0)
 
     if rng.random() < 0.3:
         k = rng.randint(3, 7)
@@ -405,7 +393,10 @@ def degrade(img_bgr: np.ndarray, rng: random.Random) -> np.ndarray:
 
     if rng.random() < 0.4:
         H, W = out.shape[:2]
-        scale = rng.uniform(0.5, 0.85)
+        # Floor at 0.7: 0.5x downsampling (often stacked on the pics-path warp,
+        # which already shrinks the page) destroys thin strokes and is the main
+        # cause of unreadable washed-out text.
+        scale = rng.uniform(0.7, 0.9)
         small = cv2.resize(out, (max(1, int(W * scale)), max(1, int(H * scale))), interpolation=cv2.INTER_LINEAR)
         out = cv2.resize(small, (W, H), interpolation=cv2.INTER_LINEAR)
 
@@ -424,7 +415,7 @@ def degrade(img_bgr: np.ndarray, rng: random.Random) -> np.ndarray:
             out[:, :, c] = np.clip(out[:, :, c].astype(np.float32) + shift, 0, 255)
 
     if rng.random() < 0.5:
-        q = int(rng.uniform(55, 90))
+        q = int(rng.uniform(65, 92))
         _, enc = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, q])
         out = cv2.imdecode(enc, cv2.IMREAD_COLOR)
 

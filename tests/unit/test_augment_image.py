@@ -23,6 +23,49 @@ def test_degrade_preserves_shape_and_dtype(page_bgr):
         assert out.dtype == np.uint8
 
 
+def test_degrade_caps_keep_thin_strokes_legible(monkeypatch):
+    """The blur/downsample/jpeg caps that keep small Arabic text readable.
+
+    A per-pixel darkness metric is too noisy (the worst washout only shows once
+    the pics-path warp pre-shrinks the page), so we pin the parameters directly:
+    spy on every cv2 op degrade() performs across many seeds and assert it never
+    reaches into the obliterating range.  Old params (Gaussian k=5, downsample
+    to 0.5x, JPEG q55) violate every one of these bounds.
+    """
+    import cv2
+
+    ksizes, shrink_ratios, jpeg_qs = [], [], []
+
+    real_gauss, real_resize, real_imencode = cv2.GaussianBlur, cv2.resize, cv2.imencode
+
+    def spy_gauss(src, ksize, sigmaX, *a, **k):
+        ksizes.append(ksize[0])
+        return real_gauss(src, ksize, sigmaX, *a, **k)
+
+    def spy_resize(src, dsize, *a, **k):
+        if dsize[0] < src.shape[1]:           # the shrink half of a downsample
+            shrink_ratios.append(dsize[0] / src.shape[1])
+        return real_resize(src, dsize, *a, **k)
+
+    def spy_imencode(ext, img, params=None):
+        if params and cv2.IMWRITE_JPEG_QUALITY in params:
+            jpeg_qs.append(params[params.index(cv2.IMWRITE_JPEG_QUALITY) + 1])
+        return real_imencode(ext, img, params)
+
+    monkeypatch.setattr(augment.cv2, "GaussianBlur", spy_gauss)
+    monkeypatch.setattr(augment.cv2, "resize", spy_resize)
+    monkeypatch.setattr(augment.cv2, "imencode", spy_imencode)
+
+    img = np.full((200, 280, 3), 255, dtype=np.uint8)
+    for seed in range(300):
+        augment.degrade(img, random.Random(seed))
+
+    assert ksizes and shrink_ratios and jpeg_qs   # all three branches exercised
+    assert max(ksizes) <= 3                        # no k=5 Gaussian
+    assert min(shrink_ratios) >= 0.7 - 1e-6        # downsample floored at 0.7x
+    assert min(jpeg_qs) >= 65                       # JPEG quality floored at 65
+
+
 # ---------------------------------------------------------------------------
 # augment_page path selection
 # ---------------------------------------------------------------------------

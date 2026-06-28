@@ -268,10 +268,6 @@ def _apply_scan(page_bgr: np.ndarray, scan_imgs: list[str], rng: random.Random) 
 # Path B — photo paper perspective warp
 # ---------------------------------------------------------------------------
 
-def _long_short(a, b):
-    return (a, b) if a >= b else (b, a)
-
-
 def _apply_pics(
     page_bgr: np.ndarray,
     polygons: list,

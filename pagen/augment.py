@@ -381,8 +381,9 @@ def degrade(img_bgr: np.ndarray, rng: random.Random) -> np.ndarray:
     out = img_bgr.copy()
 
     if rng.random() < 0.5:
-        k = rng.choice([3, 5])
-        out = cv2.GaussianBlur(out, (k, k), 0)
+        # k=5 obliterates thin (~1-2px) Arabic strokes on small text, washing
+        # black ink to mid-gray; k=3 keeps it legible while still softening.
+        out = cv2.GaussianBlur(out, (3, 3), 0)
 
     if rng.random() < 0.3:
         k = rng.randint(3, 7)
@@ -396,7 +397,10 @@ def degrade(img_bgr: np.ndarray, rng: random.Random) -> np.ndarray:
 
     if rng.random() < 0.4:
         H, W = out.shape[:2]
-        scale = rng.uniform(0.5, 0.85)
+        # Floor at 0.7: 0.5x downsampling (often stacked on the pics-path warp,
+        # which already shrinks the page) destroys thin strokes and is the main
+        # cause of unreadable washed-out text.
+        scale = rng.uniform(0.7, 0.9)
         small = cv2.resize(out, (max(1, int(W * scale)), max(1, int(H * scale))), interpolation=cv2.INTER_LINEAR)
         out = cv2.resize(small, (W, H), interpolation=cv2.INTER_LINEAR)
 
@@ -415,7 +419,7 @@ def degrade(img_bgr: np.ndarray, rng: random.Random) -> np.ndarray:
             out[:, :, c] = np.clip(out[:, :, c].astype(np.float32) + shift, 0, 255)
 
     if rng.random() < 0.5:
-        q = int(rng.uniform(55, 90))
+        q = int(rng.uniform(65, 92))
         _, enc = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, q])
         out = cv2.imdecode(enc, cv2.IMREAD_COLOR)
 

@@ -33,6 +33,31 @@ def test_render_document_produces_consistent_page():
             assert 0 <= x <= page.width and 0 <= y <= page.height
 
 
+def test_render_document_wide_table_stays_within_page():
+    """A wide, content-heavy table must wrap inside the page box instead of
+    overflowing it.  Overflowed words get clamped to the page edge, producing
+    degenerate (zero-area) polygons for text that the rasteriser cropped away;
+    with fixed layout + word breaking every word lands on-page with real area.
+    """
+    long_token = "كلمةطويلةجدًاغيرقابلةللكسرنهائيًاإطلاقًا"
+    header = "| " + " | ".join(f"عمود{i}" for i in range(6)) + " |"
+    sep = "|" + "---|" * 6
+    row = "| " + " | ".join(long_token for _ in range(6)) + " |"
+    template = f"# جدول\n\n{header}\n{sep}\n" + "\n".join(row for _ in range(3)) + "\n"
+
+    pages = render.render_document(template, fonts=[DEFAULT_FONT], words=["كلمة"], dpi=72)
+    assert pages
+    page = pages[0]
+    assert len(page.polygons) == len(page.labels)
+    for poly in page.polygons:
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        assert 0 <= min(xs) and max(xs) <= page.width
+        assert 0 <= min(ys) and max(ys) <= page.height
+        # No clipped-to-edge degenerate boxes: every visible word has real area.
+        assert max(xs) > min(xs) and max(ys) > min(ys)
+
+
 def test_render_document_keep_pdf_attaches_pdf_bytes():
     pages = render.render_document(
         "# عنوان\n\n{WORDS_2}\n", fonts=[DEFAULT_FONT], words=["a", "b"],

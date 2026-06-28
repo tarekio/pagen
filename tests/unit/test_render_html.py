@@ -55,6 +55,17 @@ def test_build_full_html_contains_profile_markers(arabic_profile):
     assert "CustomArabicFont" in html
 
 
+def test_build_full_html_table_css_wraps_instead_of_overflowing():
+    """Wide tables must wrap inside the page box.  Without fixed layout +
+    word breaking, a content-heavy table overflows the page edge and the
+    rasteriser silently crops the trailing (RTL: leftmost) columns.
+    Script-agnostic: this is page-layout behaviour, not Arabic-specific.
+    """
+    html = render.build_full_html("<table><tr><td>x</td></tr></table>", "", "F")
+    assert "table-layout: fixed" in html
+    assert "overflow-wrap: break-word" in html or "word-break: break-word" in html
+
+
 # ---------------------------------------------------------------------------
 # build_word_polygons — ink-tightening on a synthetic page
 # ---------------------------------------------------------------------------

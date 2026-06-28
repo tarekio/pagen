@@ -82,6 +82,39 @@ def test_augment_page_pics_path_empty_polygons(page_bgr, make_scene_image, tmp_p
     assert new_polys == []
 
 
+def test_apply_pics_keeps_portrait_page_upright_on_landscape_paper(tmp_path):
+    """Regression: a portrait page warped onto a landscape paper quad must stay
+    upright, never turned 90 degrees.
+
+    A thin centered vertical ink stripe is flip- and jitter-invariant but
+    rotation-sensitive: upright it stays taller than wide; the old
+    orientation-matching branch rotated it to span the paper's long (horizontal)
+    axis, making it wider than tall.
+    """
+    import cv2
+
+    # Portrait page (H > W) with a thin centered vertical black stripe.
+    pH, pW = 300, 200
+    page = np.full((pH, pW, 3), 255, dtype=np.uint8)
+    page[:, pW // 2 - 8: pW // 2 + 8] = 0
+
+    # Plain photo carrying a clearly landscape paper quad (width >> height).
+    photo = np.full((400, 700, 3), 255, dtype=np.uint8)
+    pic_path = str(tmp_path / "paper.png")
+    cv2.imwrite(pic_path, photo)
+    quad = [[60, 120], [640, 120], [640, 300], [60, 300]]   # w=580 > h=180
+    cache = {"paper.png": augment._make_entry(quad, "auto")}
+
+    out, _ = augment._apply_pics(page, [], [pic_path], cache, random.Random(0))
+
+    gray = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+    ys, xs = np.where(gray < 128)
+    assert xs.size > 0, "page ink should be composited onto the photo"
+    ink_w = xs.max() - xs.min()
+    ink_h = ys.max() - ys.min()
+    assert ink_h > ink_w, "vertical stripe became horizontal -> page was rotated"
+
+
 def test_augment_page_pics_path_fallback_to_degrade(page_bgr):
     # No corners/pics and no scan textures -> just degrade, polygons unchanged.
     ctx = AugmentContext(clean_prob=0.0, scan_prob=0.0)

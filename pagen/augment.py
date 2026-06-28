@@ -339,21 +339,12 @@ def _apply_pics(
         t = rng.uniform(0.0, 0.05)
         quad_pts[i] = quad_pts[i] + t * (centroid - quad_pts[i])
 
-    top_w = np.linalg.norm(quad_pts[1] - quad_pts[0])
-    bot_w = np.linalg.norm(quad_pts[2] - quad_pts[3])
-    left_h = np.linalg.norm(quad_pts[3] - quad_pts[0])
-    right_h = np.linalg.norm(quad_pts[2] - quad_pts[1])
-    quad_w = (top_w + bot_w) / 2.0
-    quad_h = (left_h + right_h) / 2.0
-
-    page_long, page_short = _long_short(pH, pW)
-    quad_long, quad_short = _long_short(quad_h, quad_w)
-
-    if (page_long == pH) == (quad_long == quad_h):
-        src_pts = np.array([[0, 0], [pW, 0], [pW, pH], [0, pH]], dtype=np.float32)
-    else:
-        src_pts = np.array([[0, pW], [0, 0], [pH, 0], [pH, pW]], dtype=np.float32)
-
+    # Map the page onto the paper quad upright (page TL,TR,BR,BL -> quad
+    # TL,TR,BR,BL).  We never rotate the page 90 degrees to match the paper's
+    # orientation: rotated text is wrong for OCR training even when it avoids
+    # stretching, so a portrait page on a landscape paper is allowed to distort
+    # instead of being turned sideways.
+    src_pts = np.array([[0, 0], [pW, 0], [pW, pH], [0, pH]], dtype=np.float32)
     H_mat = cv2.getPerspectiveTransform(src_pts, quad_pts)
     warped_page = cv2.warpPerspective(page_bgr, H_mat, (fW, fH), borderValue=(255, 255, 255))
 

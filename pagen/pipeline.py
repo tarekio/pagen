@@ -23,6 +23,37 @@ import cv2
 
 
 # ---------------------------------------------------------------------------
+# Pre-fill pool (LLM content generated once in the parent, sampled by workers)
+# ---------------------------------------------------------------------------
+
+# A flat list of pre-filled markdown documents, set in each Pool worker via the
+# initializer below. The LLM runs once per template in the parent process (see
+# build_fill_pool), so workers never contend the GPU. Empty means "no pre-fill":
+# workers read a template and fill it themselves (random, or the legacy in-worker
+# LLM path if a task still carries an llm_config).
+_FILL_POOL: list[str] = []
+
+
+def _init_fill_pool(pool: list[str]) -> None:
+    """Pool initializer: install the pre-filled document pool in this worker."""
+    global _FILL_POOL
+    _FILL_POOL = pool
+
+
+def _document_content(task, rng):
+    """Return (markdown, llm_config_for_render) for one document.
+
+    Prefers a pre-generated fill from ``_FILL_POOL``; otherwise reads a random
+    template for in-worker filling.
+    """
+    if _FILL_POOL:
+        return rng.choice(_FILL_POOL), None
+    template_path = rng.choice(task.template_paths)
+    with open(template_path, encoding="utf-8") as f:
+        return f.read(), task.llm_config
+
+
+# ---------------------------------------------------------------------------
 # Worker task / result types
 # ---------------------------------------------------------------------------
 
@@ -65,17 +96,15 @@ def _dataset_worker(task: DatasetTask):
     from pagen.render import render_document
     from pagen.augment import augment_page
 
-    template_path = rng.choice(task.template_paths)
-    with open(template_path, encoding="utf-8") as f:
-        template_content = f.read()
+    content, render_llm = _document_content(task, rng)
 
     try:
         pages = render_document(
-            template_content,
+            content,
             fonts=task.fonts,
             words=task.words,
             dpi=task.dpi,
-            llm_config=task.llm_config,
+            llm_config=render_llm,
             keep_pdf=task.keep_pdf,
         )
     except Exception as e:
@@ -162,17 +191,15 @@ def _eval_worker(task: EvalTask):
 
     from pagen.render import render_document
 
-    template_path = rng.choice(task.template_paths)
-    with open(template_path, encoding="utf-8") as f:
-        template_content = f.read()
+    content, render_llm = _document_content(task, rng)
 
     try:
         pages = render_document(
-            template_content,
+            content,
             fonts=task.fonts,
             words=task.words,
             dpi=task.dpi,
-            llm_config=task.llm_config,
+            llm_config=render_llm,
         )
     except Exception as e:
         print(f"  WARNING: render failed for doc {task.file_id}: {e}")
@@ -260,6 +287,56 @@ class _JsonWriter:
 
 
 # ---------------------------------------------------------------------------
+# Pre-fill pool generation (one sequential parent-process pass)
+# ---------------------------------------------------------------------------
+
+def build_fill_pool(
+    template_paths: list[str],
+    llm_config,
+    variants: int,
+    max_tries: int = 3,
+) -> list[str]:
+    """Generate up to ``variants`` filled markdown documents per template.
+
+    Runs sequentially in the calling (parent) process so the LLM is invoked once
+    per variant total, never per output image, and the GPU is never contended by
+    Pool workers. Returns a flat list of valid fills across all templates;
+    templates that yield none are skipped with a warning. A backend error aborts
+    the pass and returns whatever was collected (callers fall back to random
+    fill), so a dead/stalled backend cannot multiply the request timeout.
+    """
+    from pagen.text import _llm_fill_once
+
+    pool: list[str] = []
+    total = len(template_paths) * variants
+    done = 0
+    for tpl_path in template_paths:
+        with open(tpl_path, encoding="utf-8") as f:
+            template = f.read()
+        got = 0
+        for _ in range(variants):
+            filled = None
+            for _ in range(max_tries):
+                try:
+                    filled = _llm_fill_once(template, llm_config)
+                except Exception as e:
+                    print(f"\n  WARNING: LLM backend error ({e}); aborting pre-fill — "
+                          f"workers will fall back to random fill.")
+                    return pool
+                if filled is not None:
+                    break
+            if filled is not None:
+                pool.append(filled)
+                got += 1
+            done += 1
+            print(f"  Pre-generating fills: {done}/{total}", end="\r", flush=True)
+        if got == 0:
+            print(f"\n  WARNING: no valid LLM fills for {os.path.basename(tpl_path)}")
+    print()
+    return pool
+
+
+# ---------------------------------------------------------------------------
 # Public: generate_split
 # ---------------------------------------------------------------------------
 
@@ -277,10 +354,21 @@ def generate_split(
     keep_pdf: bool = False,
     workers: int = 1,
     seed: int = 42,
+    fill_variants: int = 10,
 ) -> None:
     """Generate ``count`` documents into ``output_dir`` (doctr detection format)."""
     images_dir = os.path.join(output_dir, "images")
     os.makedirs(images_dir, exist_ok=True)
+
+    # LLM fills are generated once here (parent process), not per image. Workers
+    # then sample from the pool, so the per-task llm_config is always None.
+    fill_pool: list[str] = []
+    if llm_config is not None:
+        print(f"Pre-generating LLM fills ({fill_variants}/template, "
+              f"{len(template_paths)} templates)…")
+        fill_pool = build_fill_pool(template_paths, llm_config, fill_variants)
+        if not fill_pool:
+            print("  No LLM fills produced; falling back to random word fill.")
 
     start_id = _next_id(images_dir)
     file_ids = list(range(start_id, start_id + count))
@@ -295,7 +383,7 @@ def generate_split(
             dpi=dpi,
             augment=augment,
             augment_ctx=augment_ctx,
-            llm_config=llm_config,
+            llm_config=None,
             keep_txt=keep_txt,
             keep_pdf=keep_pdf,
             seed=(seed * 1_000_003 + i) % (2**31),
@@ -313,7 +401,7 @@ def generate_split(
     done = 0
 
     writer = _JsonWriter(labels_path, existing)
-    pool = multiprocessing.Pool(n_workers)
+    pool = multiprocessing.Pool(n_workers, initializer=_init_fill_pool, initargs=(fill_pool,))
     try:
         for page_results in pool.imap_unordered(_dataset_worker_unpack, tasks):
             for img_name, entry in page_results:
@@ -347,9 +435,19 @@ def generate_eval(
     llm_config=None,
     workers: int = 1,
     seed: int = 42,
+    fill_variants: int = 10,
 ) -> None:
     """Generate ``count`` eval documents (PNG + plain-text GT, no polygons)."""
     os.makedirs(output_dir, exist_ok=True)
+
+    fill_pool: list[str] = []
+    if llm_config is not None:
+        print(f"Pre-generating LLM fills ({fill_variants}/template, "
+              f"{len(template_paths)} templates)…")
+        fill_pool = build_fill_pool(template_paths, llm_config, fill_variants)
+        if not fill_pool:
+            print("  No LLM fills produced; falling back to random word fill.")
+
     start_id = _next_id_plain(output_dir)
 
     tasks = [
@@ -360,7 +458,7 @@ def generate_eval(
             fonts=fonts,
             words=words,
             dpi=dpi,
-            llm_config=llm_config,
+            llm_config=None,
             seed=(seed * 1_000_003 + i) % (2**31),
         )
         for i in range(count)
@@ -369,7 +467,7 @@ def generate_eval(
     n_workers = max(1, min(workers, count))
     done = 0
 
-    pool = multiprocessing.Pool(n_workers)
+    pool = multiprocessing.Pool(n_workers, initializer=_init_fill_pool, initargs=(fill_pool,))
     try:
         for result in pool.imap_unordered(_eval_worker_unpack, tasks):
             done += len(result)

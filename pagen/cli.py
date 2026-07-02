@@ -36,10 +36,14 @@ def _add_llm_args(parser: argparse.ArgumentParser):
     g.add_argument("--llm-base-url", default="http://localhost:11434/v1",
                    metavar="URL",
                    help="OpenAI-compatible API base URL (default: Ollama at localhost:11434)")
-    g.add_argument("--llm-model", default="llama3", metavar="MODEL",
-                   help="Model name (default: llama3)")
+    g.add_argument("--llm-model", default="qwen2.5:7b", metavar="MODEL",
+                   help="Model name (default: qwen2.5:7b)")
     g.add_argument("--api-key-env", default="OPENAI_API_KEY", metavar="VAR",
                    help="Env var holding the API key; ignored for Ollama (default: OPENAI_API_KEY)")
+    g.add_argument("--fill-variants", type=int, default=10, metavar="N",
+                   help="LLM fills pre-generated per template, sampled by workers "
+                        "(dataset/eval only; default: 10). LLM calls scale with "
+                        "templates*N, not with image count.")
 
 
 def _llm_config_from_args(args):
@@ -109,8 +113,9 @@ def _wizard() -> argparse.Namespace:
         pdf_only=pdf_only, keep_txt=keep_txt, keep_pdf=keep_pdf,
         llm=use_llm,
         llm_base_url="http://localhost:11434/v1",
-        llm_model="llama3",
+        llm_model="qwen2.5:7b",
         api_key_env="OPENAI_API_KEY",
+        fill_variants=10,
         dpi=150,
         workers=os.cpu_count() or 4,
         seed=42,
@@ -181,6 +186,7 @@ def _cmd_dataset(args):
         keep_pdf=args.keep_pdf,
         workers=args.workers,
         seed=args.seed,
+        fill_variants=args.fill_variants,
     )
 
     if args.train > 0:
@@ -217,6 +223,7 @@ def _cmd_eval(args):
         llm_config=llm_config,
         workers=args.workers,
         seed=args.seed,
+        fill_variants=args.fill_variants,
     )
 
 

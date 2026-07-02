@@ -13,5 +13,7 @@ CORPORA_DIR = os.path.join(RESOURCES_DIR, "corpora")
 TEMPLATES_DIR = os.path.join(RESOURCES_DIR, "templates")
 SCENE_DIR = os.path.join(RESOURCES_DIR, "images", "scene")        # photo backgrounds
 TEXTURES_DIR = os.path.join(RESOURCES_DIR, "images", "textures")  # scan textures
+PROMPTS_DIR = os.path.join(RESOURCES_DIR, "prompts")             # LLM prompt text
 
 DEFAULT_FONT = os.path.join(FONTS_DIR, "Amiri-Regular.ttf")
+FILL_PROMPT = os.path.join(PROMPTS_DIR, "fill_prompt.txt")

@@ -121,8 +121,14 @@ pagen dataset --train N --val N [options]
 |---|---|---|
 | `--llm` | off | Enable LLM-based placeholder fill |
 | `--llm-base-url` | `http://localhost:11434/v1` | OpenAI-compatible API endpoint |
-| `--llm-model` | `llama3` | Model name |
+| `--llm-model` | `qwen2.5:7b` | Model name |
 | `--api-key-env` | `OPENAI_API_KEY` | Env var holding the API key (never a CLI flag) |
+| `--fill-variants` | `10` | LLM fills pre-generated per template, then sampled by workers |
+
+With `--llm`, content is generated **once per template** (`--fill-variants` variants
+each) in a single pass before rendering, and workers sample from that pool. LLM
+calls therefore scale with `templates * fill-variants`, not with the number of
+images. If the backend is unreachable, generation falls back to random corpus fill.
 
 Re-running into an existing output directory **appends**: new IDs continue after existing ones and `labels.json` is preserved.
 
@@ -136,7 +142,7 @@ pagen dataset --train 1000 --val 200 -o data/
 pagen dataset --train 50 --val 10 --pdf-only --keep-txt --keep-pdf -o data/
 
 # LLM fill via Ollama (must be running: ollama serve)
-pagen dataset --train 100 --val 20 --llm --llm-model llama3
+pagen dataset --train 100 --val 20 --llm --llm-model qwen2.5:7b
 
 # LLM fill via any OpenAI-compatible provider
 OPENAI_API_KEY=sk-... pagen dataset --train 100 --val 20 \
@@ -161,7 +167,7 @@ Templates are generated once and reused across many dataset runs. This command i
 
 ```bash
 # Generate 10 templates from the built-in document-type pool
-pagen templates --random 10 --llm --llm-model llama3
+pagen templates --random 10 --llm --llm-model qwen2.5:7b
 
 # Generate specific types
 pagen templates "عقد عمل" "خطاب توصية" --llm

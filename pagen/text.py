@@ -132,22 +132,71 @@ def _random_date() -> str:
 # Template filling
 # ---------------------------------------------------------------------------
 
-_LLM_PROMPT = """\
-You are an expert Arabic document generator. I will give you a markdown template with placeholders like {{WORDS_N}}, {{INT_A_B}}, {{FLOAT_A_B}}, and {{DATE}}.
-You must GENERATE the actual content and naturally replace these placeholders:
-- {{WORDS_N}}: Replace with N realistic, context-appropriate Arabic words.
-- {{INT_A_B}}: Replace with a random integer between A and B.
-- {{FLOAT_A_B}}: Replace with a random decimal between A and B.
-- {{DATE}}: Replace with a realistic date.
+# The fill prompt is data, not code: kept in resources/prompts/ so the eval
+# harness can sweep prompt variants against the exact artifact the runtime ships.
+# It uses a literal {{template}} marker (filled via str.replace, NOT str.format)
+# so the {WORDS_N} examples inside the prompt stay untouched. The marker name
+# matches promptfoo's nunjucks {{template}} variable, so the same file works in
+# both places.
+_FILL_PROMPT_CACHE: "Optional[str]" = None
 
-DO NOT include any curly braces or placeholders like `WORDS` or `INT` in your output.
-Return ONLY the completed markdown document text, nothing else. No explanations.
-DO NOT include diacritics in the generated Arabic words. Use plain Arabic text.
-IMPORTANT: Do not exceed the length of the provided template. Keep the content brief so it fits on a single page.
+# Fraction of non-space chars filter_llm_output may strip before an attempt is
+# treated as off-target (English/emoji bleed) rather than valid Arabic.
+_MAX_STRIP_FRACTION = 0.3
 
-Template:
-{template}
-"""
+
+def _fill_prompt() -> str:
+    """Load and cache the fill prompt template from resources/prompts/."""
+    global _FILL_PROMPT_CACHE
+    if _FILL_PROMPT_CACHE is None:
+        from pagen._paths import FILL_PROMPT
+        with open(FILL_PROMPT, encoding="utf-8") as f:
+            _FILL_PROMPT_CACHE = f.read()
+    return _FILL_PROMPT_CACHE
+
+
+def _too_much_stripped(before: str, after: str, threshold: float = _MAX_STRIP_FRACTION) -> bool:
+    """True when filtering removed more than ``threshold`` of the non-space chars.
+
+    Catches output that drifted off the allowed Arabic set (e.g. an English
+    paragraph): silently filtering it would leave holes in the ground-truth
+    labels, so the attempt is rejected instead.
+    """
+    before_n = sum(1 for c in before if not c.isspace())
+    if before_n == 0:
+        return True
+    after_n = sum(1 for c in after if not c.isspace())
+    return (before_n - after_n) / before_n > threshold
+
+
+def _llm_fill_once(template: str, llm_config: "LLMConfig") -> "Optional[str]":
+    """One LLM fill attempt.
+
+    Returns completed Arabic markdown, or ``None`` when the output is invalid
+    (leftover placeholders or too much stripped by the allowed-char filter).
+    Backend errors propagate to the caller, which decides retry vs fallback.
+    """
+    from pagen.llm import chat
+    raw = chat(
+        llm_config,
+        [{"role": "user", "content": _fill_prompt().replace("{{template}}", template)}],
+    )
+    normalized = normalize(raw)
+    filtered = filter_llm_output(normalized)
+    if _too_much_stripped(normalized, filtered):
+        return None
+    if has_unfilled_placeholders(filtered):
+        return None
+    return to_eastern_digits(filtered)
+
+
+def fill_random(template: str, words: list[str]) -> str:
+    """Replace placeholders with random corpus words / values (no LLM)."""
+    text = re.sub(r"\{WORDS_(\d+)\}", lambda m: _random_words(words, m.group(1)), template)
+    text = re.sub(r"\{INT_(\d+)_(\d+)\}", lambda m: _random_int(m.group(1), m.group(2)), text)
+    text = re.sub(r"\{FLOAT_([\d.]+)_([\d.]+)\}", lambda m: _random_float(m.group(1), m.group(2)), text)
+    text = text.replace("{DATE}", _random_date())
+    return to_eastern_digits(text)
 
 
 def fill_template(
@@ -159,32 +208,22 @@ def fill_template(
     """Fill a markdown template, returning completed Arabic markdown.
 
     When ``llm_config`` is provided the LLM fills in contextually appropriate
-    content; otherwise placeholders are replaced with random corpus words/values.
+    content, falling back to random corpus words on repeated invalid output or a
+    backend error; otherwise placeholders are replaced with random words/values.
     In both cases the final text has Western digits converted to Eastern Arabic.
     """
     if llm_config is not None:
-        from pagen.llm import chat
-        for attempt in range(max_tries):
+        for _ in range(max_tries):
             try:
-                raw = chat(
-                    llm_config,
-                    [{"role": "user", "content": _LLM_PROMPT.format(template=template)}],
-                )
-                filled = filter_llm_output(normalize(raw))
-                if not has_unfilled_placeholders(filled):
-                    return to_eastern_digits(filled)
-                if attempt < max_tries - 1:
-                    continue
+                filled = _llm_fill_once(template, llm_config)
             except Exception as e:
                 print(f"WARNING: LLM fill failed ({e}), falling back to random words.")
                 break
-        # fall through to random fill on failure
+            if filled is not None:
+                return filled
+        # all attempts invalid (or backend error): fall through to random fill
 
-    text = re.sub(r"\{WORDS_(\d+)\}", lambda m: _random_words(words, m.group(1)), template)
-    text = re.sub(r"\{INT_(\d+)_(\d+)\}", lambda m: _random_int(m.group(1), m.group(2)), text)
-    text = re.sub(r"\{FLOAT_([\d.]+)_([\d.]+)\}", lambda m: _random_float(m.group(1), m.group(2)), text)
-    text = text.replace("{DATE}", _random_date())
-    return to_eastern_digits(text)
+    return fill_random(template, words)
 
 
 # ---------------------------------------------------------------------------

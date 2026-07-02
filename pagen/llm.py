@@ -30,9 +30,12 @@ def _try_load_dotenv():
 @dataclass
 class LLMConfig:
     base_url: str = "http://localhost:11434/v1"
-    model: str = "llama3"
+    model: str = "qwen2.5:7b"
     api_key_env: str = "OPENAI_API_KEY"
     no_think: bool = True  # suppress chain-of-thought tokens on reasoning models
+    timeout: float = 120.0  # per-request timeout (s); a stalled backend must not hang a run
+    max_tokens: int = 1024  # cap output to bound worst-case latency on slow GPUs
+    temperature: Optional[float] = None  # None -> use the model/server default
 
     def _api_key(self) -> str:
         return os.environ.get(self.api_key_env) or "ollama"
@@ -43,13 +46,21 @@ class LLMConfig:
             from openai import OpenAI
         except ImportError:
             sys.exit("ERROR: openai package not installed — run: pip install openai")
-        return OpenAI(base_url=self.base_url, api_key=self._api_key())
+        # max_retries=0: we own retry/fallback policy (see text.fill_template).
+        return OpenAI(
+            base_url=self.base_url,
+            api_key=self._api_key(),
+            timeout=self.timeout,
+            max_retries=0,
+        )
 
 
 def chat(cfg: LLMConfig, messages: list[dict]) -> str:
     """Send a chat request and return the assistant message content string."""
     client = cfg.client()
-    kwargs: dict = dict(model=cfg.model, messages=messages)
+    kwargs: dict = dict(model=cfg.model, messages=messages, max_tokens=cfg.max_tokens)
+    if cfg.temperature is not None:
+        kwargs["temperature"] = cfg.temperature
     if cfg.no_think:
         # Disable chain-of-thought on reasoning models. reasoning_effort="none" is
         # the only switch Ollama honors on its OpenAI-compatible /v1 endpoint — the
